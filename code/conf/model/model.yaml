@@ -1,0 +1,28 @@
+name: "GIN"               # choices: GCN, GAT, GIN
+use_residual: true        # enable skip connections
+dropout: 0.5               # dropout in each GNN layer
+
+encoder:
+  antibody:
+    input_dim: 40          # Ab node feature dim (e.g. AbLang)
+    hidden_dims: [32, 32]  # dynamic list: controls number of hidden layers & widths
+    output_dim: 32         # final embedding dim per node
+
+  antigen:
+    input_dim: 40          # Ag node feature dim (e.g. ESM1b)
+    hidden_dims: [32, 32]
+    output_dim: 32
+
+decoder:
+  interaction_dim: 32     # must match encoder output_dim
+  threshold: 0.1          # for epitope classification
+
+
+
+# type: {GCN, GAT, GIN}
+# layers: 2
+# loss: {"CE", "CE_CL", "CE_CL_MI"}
+# decoder:
+#     name: 'inner_prod'
+# num_edge_cutoff: 3
+# edge_cutoff: 0.5

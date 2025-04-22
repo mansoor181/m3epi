@@ -1,0 +1,12 @@
+wandb_version: 1
+
+gwnce.cut_rate:
+  value: 0.32851753174785414
+hparams.train.batch_size:
+  value: 64
+hparams.train.learning_rate:
+  value: 0.008445372470887445
+loss.contrastive.name:
+  value: gwnce
+model.name:
+  value: GIN

@@ -1,0 +1,12 @@
+wandb_version: 1
+
+gwnce.cut_rate:
+  value: 0.42160504300205415
+hparams.train.batch_size:
+  value: 32
+hparams.train.learning_rate:
+  value: 0.0002243562608936841
+loss.contrastive.name:
+  value: infonce
+model.name:
+  value: GAT

@@ -1,0 +1,40 @@
+train:
+  batch_size: 32
+  num_epochs: 5
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  kfolds: 2
+  
+val:
+  batch_size: 64
+  
+test:
+  batch_size: 64
+
+model:
+  edge_cutoff: 10.0  # Å
+  interaction_cutoff: 8.0  # Å
+
+
+
+
+# train_batch_size: 32
+# val_batch_size: 1
+# test_batch_size: 1
+
+# batch_size: ${.train_batch_size}
+# max_epochs: 100
+# optimizer: "Adam"
+# weight_init: "normal"
+# normalization: {"batch", "kipf"}
+
+#   # change input dimensions whenever using a different embedding technique 
+#   # -- these hyperparams are also being set in the shell scripts
+#   # one_hot = 20, esm2 = 480, igfold = 512, blosum62 = 24
+# input_ab_dim: 512
+# input_ag_dim: 480
+# input_ab_act: "relu"
+# input_ag_act: "relu"
+# dim_list:
+#   128
+#   64

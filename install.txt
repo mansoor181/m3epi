@@ -1,0 +1,180 @@
+# 1. Remove old environment (if needed)
+conda deactivate
+conda env remove -n torchdrug_env -y
+
+# 2. Create fresh environment
+conda create -n torchdrug_env python=3.10 -y
+conda activate torchdrug_env
+
+# 3. Install PyTorch first
+conda install pytorch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 cpuonly -c pytorch -y
+
+# 4. Install PyTorch Geometric and extensions
+pip install torch-scatter torch-sparse torch-cluster torch-spline-conv -f https://data.pyg.org/whl/torch-2.0.1+cpu.html
+pip install torch-geometric
+
+# 5. Install TorchDrug and metrics
+pip install torchdrug torchmetrics pandas scikit-learn
+
+# 6. Verify all packages
+python -c "
+import torch; print(f'PyTorch {torch.__version__}');
+import torch_geometric; print(f'PyG {torch_geometric.__version__}');
+import torchdrug; print('TorchDrug ok')
+"
+
+
+################# cuda 12.2 setup ############
+
+# Create fresh environment with Python 3.10
+conda create -n torch_cuda122 python=3.10 -y
+conda activate torch_cuda122
+
+# Install CUDA Toolkit 12.2 and cuDNN (compatible with CUDA 12.2)
+conda install nvidia/label/cuda-12.2.0::cuda-toolkit
+
+conda install -y cudatoolkit=12.2 cudnn=8.9 -c conda-forge -c nvidia
+
+# Install PyTorch with CUDA 12.2 support
+conda install pytorch==2.2.0 torchvision==0.17.0 torchaudio==2.2.0 pytorch-cuda=12.2 -c pytorch -c nvidia -y
+
+# Install PyTorch Geometric and extensions for CUDA 12.2
+pip install pyg_lib torch_scatter torch_sparse torch_cluster torch_spline_conv -f https://data.pyg.org/whl/torch-2.2.1+cu121.html
+pip install torch_geometric
+
+# Install TorchDrug and core dependencies
+pip install torchdrug==0.2.1 torchmetrics==1.3.0 pandas==2.0.2 scikit-learn==1.3.0
+
+# Install additional required packages (same as before)
+pip install \
+    matplotlib==3.7.1 \
+    mpmath==1.2.1 \
+    ninja==1.11.1 \
+    numba==0.57.1 \
+    openpyxl==3.1.2 \
+    Pillow==9.4.0 \
+    ply==3.11 \
+    protobuf==4.23.2 \
+    pytz==2023.3 \
+    scikit-opt==0.6.6 \
+    scipy==1.10.1 \
+    seaborn==0.12.2 \
+    tqdm==4.65.0 \
+    h5py==3.9.0 \
+    graphein==1.7.0 \
+    biopython==1.81 \
+    biopandas==0.5.0.dev0 \
+    biotite==0.37.0 \
+    fair-esm==2.0.0 \
+    networkx==3.1 \
+    transformers==4.37.2
+
+
+pip install \
+    graphein==1.7.0 \
+    pandas==1.5.3 \
+    biopandas==0.5.0.dev0 \
+    torchdrug==0.2.1 \
+    torchmetrics==1.3.0 \
+    scikit-learn==1.3.2 \
+    matplotlib==3.8.0 \
+    numba==0.58.1 \
+    scipy==1.11.4 \
+    networkx==3.2.1 \
+    biopython==1.81 \
+    tqdm==4.66.1 \
+    h5py==3.10.0
+
+
+# Install ESM from source (if needed)
+pip install git+https://github.com/facebookresearch/esm.git
+
+# Verify CUDA and cuDNN
+python -c "
+import torch
+print(f'PyTorch version: {torch.__version__}')
+print(f'CUDA available: {torch.cuda.is_available()}')
+print(f'CUDA version: {torch.version.cuda}')
+print(f'cuDNN version: {torch.backends.cudnn.version()}')
+"
+
+
+############## cuda_venv amai #############
+
+
+# Create and activate new environment
+conda create -n torch_cuda122 python=3.10 -y
+conda activate torch_cuda122
+
+# Install CUDA toolkit and cuDNN
+# conda install -c conda-forge -c nvidia cudatoolkit=12.2 cudnn=8.9.7 -y
+
+# Install PyTorch ecosystem with CUDA 12.2
+# conda install pytorch==2.2.1 torchvision==0.17.1 torchaudio==2.2.1 pytorch-cuda=12.2 -c pytorch -c nvidia -y
+pip install --force-reinstall \
+    torch==2.2.1 \
+    torchvision==0.17.1 \
+    torchaudio==2.2.1 \
+    --index-url https://download.pytorch.org/whl/cu121
+
+
+# Install PyTorch Geometric and its dependencies
+pip install torch-scatter torch-sparse torch-cluster torch-spline-conv -f https://data.pyg.org/whl/torch-2.2.1+cu121.html
+pip install torch-geometric==2.5.1
+
+# Install core ML packages
+pip install \
+    pandas==2.2.1 \
+    numpy==1.26.4 \
+    scikit-learn==1.4.1.post1 \
+    scipy==1.12.0 \
+    tqdm==4.66.2 \
+    h5py==3.10.0 \
+    matplotlib==3.8.3 \
+    seaborn==0.13.2
+
+# Install TorchDrug and related packages
+pip install \
+    torchdrug==0.2.1 \
+    torchmetrics==1.4.0 \
+    pytorch-lightning==2.2.1
+
+# Install bio-related packages
+conda install pyyaml=5.4.1 -c conda-forge
+
+pip install \
+    biopython==1.83 \
+    biotite==0.37.0 \
+    biopandas==0.5.0.dev \
+    graphein==1.7.0
+
+# Install additional required packages
+pip install \
+    mpmath==1.3.0 \
+    ninja==1.11.1.1 \
+    numba==0.59.0 \
+    openpyxl==3.1.2 \
+    Pillow==10.2.0 \
+    protobuf==4.25.3 \
+    pytz==2024.1 \
+    scikit-opt==0.6.6 \
+    networkx==3.2.1 \
+    transformers==4.37.2
+
+# Install ESM from source
+pip install git+https://github.com/facebookresearch/esm.git
+
+# Verify installation
+python -c "
+import torch
+print(f'PyTorch version: {torch.__version__}')
+print(f'CUDA available: {torch.cuda.is_available()}')
+print(f'CUDA version: {torch.version.cuda}')
+if torch.cuda.is_available():
+    print(f'GPU device: {torch.cuda.get_device_name(0)}')
+print(f'cuDNN version: {torch.backends.cudnn.version()}')
+import torch_geometric
+print(f'PyG version: {torch_geometric.__version__}')
+import torchdrug
+print(f'TorchDrug version: {torchdrug.__version__}')
+"

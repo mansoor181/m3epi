@@ -1,0 +1,52 @@
+defaults:
+  - _self_
+  - mode: train # choices: train, dev
+  - hparams: hparams
+  - model: model
+  - loss: loss
+  - wandb: wandb
+  - callbacks: callbacks
+
+mode: train # choices: train, dev
+data_dir: ${hydra:runtime.cwd}/../../../data/asep/m3epi
+results_dir: ${hydra:runtime.cwd}/../../../results/hgraphepi/m3epi
+try_gpu: true 
+logging_method: wandb
+keep_interim_ckpts: true
+num_threads: 4
+seed: 42
+
+
+# new section for visualization defaults
+visualize:
+  # relative to project root
+  checkpoint: ${hydra:runtime.cwd}/../../../results/hgraphepi/m3epi/checkpoints/model-02-7.17.pt
+  batch_size: 32
+  out_dir:    ${hydra:runtime.cwd}/../../../results/hgraphepi/m3epi/figures      # save tsne_*.png here
+
+
+# modifying mode/train.yaml will not effect experiments
+# instead modify conf/*.yaml for train/dev
+# run sweep.py to execute sweep.yaml for sweep in train mode
+
+
+
+
+# work_dir: ${hydra:runtime.cwd}
+
+# defaults:
+#   - hydra: hydra
+#   - hparams: hparams
+#   - loss: loss
+#   - optimizer: adam
+#   - callbacks: callbacks
+#   - wandb_init: wandb
+#   - _self_ # this is needed for hydra to recognize the config group
+#   - pretrained_model: null
+
+# mode: "train"  # in {dev, sweep, train, tuning}
+# try_gpu: true
+# logging_method: wandb  # choices: wandb (default), tensorboard
+# keep_interim_ckpts: true  # keep all interim checkpoints
+# num_threads: 4
+# seed: ???
