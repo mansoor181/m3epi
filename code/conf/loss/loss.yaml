@@ -8,8 +8,7 @@ node_prediction:
   pos_weight: 8          # ≈ (#neg / #pos) in one complex
 
 contrastive:
-  # name: either "infonce" or "gwnce"
-  name: "gwnce"
+  name: "infonce" # either "infonce", "gwnce" or "" for ce only
   temperature: 0.7     # τ in all InfoNCE formulas
   intra_weight: 0.1    # λ_intra
   inter_weight: 0.1    # λ_inter

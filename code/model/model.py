@@ -3,6 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import GCNConv, GATConv, GINConv
 
+from model.CrossAttention import CrossAttentionBlock
+
 class GraphLayer(nn.Module):
     """
     Single GNN layer: GCN/GAT/GIN + optional residual.
@@ -65,10 +67,17 @@ class GraphEncoder(nn.Module):
         # last layer, no dropout
         return self.layers[-1](x, edge_index)
 
-class BipartiteDecoder(nn.Module):
-    """
-    Dot-product decoder for Ab-Ag bipartite edges.
-    """
+"""
+### Runtime impact
+* **Dot** fastest, O(NM) mat‑mul.  
+* **MLP** same memory as dot; a single extra FC pass.  
+* **Attention** adds multi‑head projection, slight memory overhead but still O(NM).
+"""
+
+# ─────────────────────────────────────────────────────────────
+# 1) Dot‑product decoder (formerly BipartiteDecoder)
+# ─────────────────────────────────────────────────────────────
+class DotDecoder(nn.Module):
     def __init__(self, hidden_dim: int):
         super().__init__()
         self.interaction = nn.Parameter(torch.Tensor(hidden_dim, hidden_dim))
@@ -78,10 +87,45 @@ class BipartiteDecoder(nn.Module):
         logits = ag_embed @ self.interaction @ ab_embed.t()
         return torch.sigmoid(logits)
 
+# ─────────────────────────────────────────────────────────────
+# 2) MLP‑based pairwise decoder
+# ─────────────────────────────────────────────────────────────
+class MLPDecoder(nn.Module):
+    """Score each Ag–Ab pair by concatenating their embeddings into a tiny MLP."""
+    def __init__(self, in_dim: int, hidden: int = 64):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(in_dim * 2, hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, 1)
+        )
+
+    def forward(self, ag_embed, ab_embed):
+        N, D = ag_embed.shape
+        M    = ab_embed.shape[0]
+        # expand to pairwise
+        ag_exp = ag_embed.unsqueeze(1).expand(N, M, D)
+        ab_exp = ab_embed.unsqueeze(0).expand(N, M, D)
+        pair   = torch.cat([ag_exp, ab_exp], dim=-1)      # [N,M,2D]
+        logits = self.net(pair).squeeze(-1)               # [N,M]
+        return torch.sigmoid(logits)
+
+# ─────────────────────────────────────────────────────────────
+# 3) Cross‑Attention decoder
+# ─────────────────────────────────────────────────────────────
+
+class AttentionDecoder(nn.Module):
+    """Cross‑attend each antigen node over all antibody nodes (multi‑head)."""
+    def __init__(self, dim: int, num_heads: int = 4):
+        super().__init__()
+        self.attn = CrossAttentionBlock(dim, num_heads)
+
+    def forward(self, ag_embed, ab_embed):
+        # returns [N,M] attention‑score matrix
+        return self.attn(ag_embed, ab_embed)
+    
+
 class M3EPI(nn.Module):
-    """
-    Integrates two GraphEncoders (antigen/antibody) + BipartiteDecoder.
-    """
     def __init__(self, config):
         super().__init__()
         mt = config.model.name
@@ -89,42 +133,115 @@ class M3EPI(nn.Module):
         dr = config.model.dropout
         print(f"[INFO] Model={mt} | residual={ur} | dropout={dr}")
 
-        # antigen encoder
+        # two separate encoders
         self.ag_encoder = GraphEncoder(
             input_dim=config.model.encoder.antigen.input_dim,
             hidden_dims=config.model.encoder.antigen.hidden_dims,
             output_dim=config.model.encoder.antigen.output_dim,
-            model_type=mt,
-            use_residual=ur,
-            dropout=dr
+            model_type=mt, use_residual=ur, dropout=dr
         )
-        # antibody encoder
         self.ab_encoder = GraphEncoder(
             input_dim=config.model.encoder.antibody.input_dim,
             hidden_dims=config.model.encoder.antibody.hidden_dims,
             output_dim=config.model.encoder.antibody.output_dim,
-            model_type=mt,
-            use_residual=ur,
-            dropout=dr
+            model_type=mt, use_residual=ur, dropout=dr
         )
-        # decoder
-        self.decoder = BipartiteDecoder(config.model.decoder.interaction_dim)
-        self.threshold = config.model.decoder.threshold
 
+        # ─────────────────────────────────────────────────────
+        # decoder dispatch
+        dec_cfg = config.model.decoder
+        dec_type = dec_cfg.type.lower()
+        dim      = dec_cfg.interaction_dim
+
+        if dec_type == "dot":
+            self.decoder = DotDecoder(dim)
+        elif dec_type == "mlp":
+            self.decoder = MLPDecoder(dim, dec_cfg.mlp_hidden)
+        elif dec_type == "attention":
+            self.decoder = AttentionDecoder(dim, dec_cfg.heads)
+        else:
+            raise ValueError(f"Unknown decoder type: {dec_type}")
+
+        self.threshold = dec_cfg.threshold
+    # ─────────────────────────────────────────────────────────────
     def forward(self, batch):
         ag_x, ag_e = batch['x_g'], batch['edge_index_g']
         ab_x, ab_e = batch['x_b'], batch['edge_index_b']
 
         ag_emb = self.ag_encoder(ag_x, ag_e)
         ab_emb = self.ab_encoder(ab_x, ab_e)
-        ip = self.decoder(ag_emb, ab_emb)
-        epi_prob = ip.max(dim=1).values
+        ip     = self.decoder(ag_emb, ab_emb)       # [N,M]
+        # print(ip)
+        epi_prob = ip.max(dim=1).values             # as before
+
         return {
             'ag_embed': ag_emb,
             'ab_embed': ab_emb,
             'interaction_probs': ip,
             'epitope_prob': epi_prob
         }
+
+
+# class BipartiteDecoder(nn.Module):
+#     """
+#     Dot-product decoder for Ab-Ag bipartite edges.
+#     """
+#     def __init__(self, hidden_dim: int):
+#         super().__init__()
+#         self.interaction = nn.Parameter(torch.Tensor(hidden_dim, hidden_dim))
+#         nn.init.xavier_uniform_(self.interaction)
+
+#     def forward(self, ag_embed, ab_embed):
+#         logits = ag_embed @ self.interaction @ ab_embed.t()
+#         return torch.sigmoid(logits)
+
+# class M3EPI(nn.Module):
+#     """
+#     Integrates two GraphEncoders (antigen/antibody) + BipartiteDecoder.
+#     """
+#     def __init__(self, config):
+#         super().__init__()
+#         mt = config.model.name
+#         ur = config.model.use_residual
+#         dr = config.model.dropout
+#         print(f"[INFO] Model={mt} | residual={ur} | dropout={dr}")
+
+#         # antigen encoder
+#         self.ag_encoder = GraphEncoder(
+#             input_dim=config.model.encoder.antigen.input_dim,
+#             hidden_dims=config.model.encoder.antigen.hidden_dims,
+#             output_dim=config.model.encoder.antigen.output_dim,
+#             model_type=mt,
+#             use_residual=ur,
+#             dropout=dr
+#         )
+#         # antibody encoder
+#         self.ab_encoder = GraphEncoder(
+#             input_dim=config.model.encoder.antibody.input_dim,
+#             hidden_dims=config.model.encoder.antibody.hidden_dims,
+#             output_dim=config.model.encoder.antibody.output_dim,
+#             model_type=mt,
+#             use_residual=ur,
+#             dropout=dr
+#         )
+#         # decoder
+#         self.decoder = BipartiteDecoder(config.model.decoder.interaction_dim)
+#         self.threshold = config.model.decoder.threshold
+
+#     def forward(self, batch):
+#         ag_x, ag_e = batch['x_g'], batch['edge_index_g']
+#         ab_x, ab_e = batch['x_b'], batch['edge_index_b']
+
+#         ag_emb = self.ag_encoder(ag_x, ag_e)
+#         ab_emb = self.ab_encoder(ab_x, ab_e)
+#         ip = self.decoder(ag_emb, ab_emb)
+#         epi_prob = ip.max(dim=1).values
+#         return {
+#             'ag_embed': ag_emb,
+#             'ab_embed': ab_emb,
+#             'interaction_probs': ip,
+#             'epitope_prob': epi_prob
+#         }
 
 
 

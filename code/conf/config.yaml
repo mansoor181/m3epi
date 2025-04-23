@@ -1,13 +1,12 @@
 defaults:
   - _self_
-  - mode: train # choices: train, dev
+  - mode: dev # choices: train, dev ## populates dev/train yaml files
   - hparams: hparams
   - model: model
   - loss: loss
   - wandb: wandb
   - callbacks: callbacks
 
-mode: train # choices: train, dev
 data_dir: ${hydra:runtime.cwd}/../../../data/asep/m3epi
 results_dir: ${hydra:runtime.cwd}/../../../results/hgraphepi/m3epi
 try_gpu: true 

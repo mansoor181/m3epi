@@ -1,4 +1,4 @@
-name: "GIN"               # choices: GCN, GAT, GIN
+name: "GAT"               # choices: GCN, GAT, GIN
 use_residual: true        # enable skip connections
 dropout: 0.5               # dropout in each GNN layer
 
@@ -14,15 +14,9 @@ encoder:
     output_dim: 32
 
 decoder:
-  interaction_dim: 32     # must match encoder output_dim
-  threshold: 0.1          # for epitope classification
+  type: "dot"             # choose one of: dot | mlp | attention
+  interaction_dim: 32     # embedding dim
+  threshold: 0.1          # epitope cutoff
+  heads: 4                # only used by attention decoder
+  mlp_hidden: 64          # only used by mlp decoder
 
-
-
-# type: {GCN, GAT, GIN}
-# layers: 2
-# loss: {"CE", "CE_CL", "CE_CL_MI"}
-# decoder:
-#     name: 'inner_prod'
-# num_edge_cutoff: 3
-# edge_cutoff: 0.5

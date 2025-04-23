@@ -1,0 +1,5 @@
+- mode=train
+- model.name=GAT
+- model.decoder.type=attention
+- seed=43
+- loss.contrastive.name=infonce

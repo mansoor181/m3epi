@@ -27,13 +27,17 @@ parameters:
   # change model type
   model.name:
     values: ["GCN","GAT","GIN"]
+  model.decoder.type:
+    values: ["dot","mlp","attention"] 
   # ...etc
+  
 
 # you can also early‑terminate bad runs:
 early_terminate:
   type: hyperband
   min_iter: 1
   max_iter: 20
+
 
 # use the default `mode=train` flag so main.py does no k‑fold & picks up only one run:
 

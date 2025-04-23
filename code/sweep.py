@@ -20,6 +20,14 @@ if __name__ == "__main__":
         project="m3epi",
         entity="alibilab-gsu",
     )
+    """
+    FIXME: 
+    - set "WANDB_DIR" env variable in zshrc
+    - sweep configs are saved in wandb dir
+    """
+    # out_dir= os.path.join(os.getcwd(), "/../../../results/hgraphepi/m3epi/sweep")
+    
+    # os.environ["WANDB_DIR"] = str(out_dir)
 
     # Launch a handful of parallel agents
     wandb.agent(

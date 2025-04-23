@@ -1,0 +1,5 @@
+- mode=train
+- model.name=GCN
+- model.decoder.type=attention
+- seed=42
+- loss.contrastive.name=infonce

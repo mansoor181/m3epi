@@ -3,11 +3,10 @@ TODO: [mansoor]
 - save the config with the model checkpoints to reproduce the same setup
 """
 
-# model/callbacks.py
-
 import torch
 from pathlib import Path
 from omegaconf import OmegaConf
+
 
 class EarlyStopping:
     def __init__(self, patience=7, min_delta=0, mode='min'):
@@ -42,162 +41,219 @@ class EarlyStopping:
 
 class ModelCheckpoint:
     """
-    Save your model + training config into each checkpoint.
+    Save only the top‐k checkpoints per experiment, with filenames encoding:
+      <model>_<loss>_ep<epoch>_lr<lr>_<monitor><metric>.pt
+    and organized under:
+      dirpath/<model>/<loss>/...
     """
     def __init__(
         self,
         dirpath: str,
-        filename: str,
-        monitor: str = 'val_loss',
-        mode: str    = 'min',
+        filename: str,            # ignored if config is passed
+        monitor: str    = 'val_loss',
+        mode: str       = 'min',
         save_top_k: int = 3,
-        config: object = None,
+        config: object  = None,
     ):
-        self.dirpath       = Path(dirpath)
-        self.dirpath.mkdir(parents=True, exist_ok=True)
-        self.filename      = filename
+        # base dir where all experiments live
+        self.base_dir      = Path(dirpath)
+        self.filename_tpl  = filename
         self.monitor       = monitor
         self.mode          = mode
         self.save_top_k    = save_top_k
-        self.best_k_models = {}
+        self.best_k_models = {}     # filepath -> metric
         self.best_value    = None
-        # stash the full Hydra config
         self.config        = config
 
     def __call__(self, model, current_value, epoch):
-        filepath = self.dirpath / f"{self.filename.format(epoch=epoch, val_loss=current_value)}.pt"
+        # Decide if this checkpoint is “better” than our best_k_models
+        if self.best_value is None:
+            should_save = True
+        else:
+            if len(self.best_k_models) < self.save_top_k:
+                should_save = True
+            elif self.mode == 'min':
+                should_save = current_value < self.best_value
+            else:
+                should_save = current_value > self.best_value
 
-        # decide whether to keep this checkpoint
-        save_it = False
-        if len(self.best_k_models) < self.save_top_k:
-            save_it = True
-        elif self.mode == 'min' and current_value < self.best_value:
-            save_it = True
-        elif self.mode != 'min' and current_value > self.best_value:
-            save_it = True
-
-        """
-        NOTE: comment this line to save the model checkpoint file anyways
-        """
-        if not save_it:
+        if not should_save:
             return False
+        
 
-        # print("Saving model checkpoint...")
+        # Build checkpoint path & filename
+        if self.config is not None:
+            # 1) experiment sub‐dir: base_dir/<model>/<loss>/
+            model_name = self.config.model.name
+            decoder_name = self.config.model.decoder.type
+            loss_name  = self.config.loss.contrastive.name or "ce"
+            exp_dir    = self.base_dir / model_name / decoder_name / loss_name / "checkpoints"
+            # print(exp_dir)
+            exp_dir.mkdir(parents=True, exist_ok=True)
 
-        # actually write it
+            # 2) pull learning rate
+            lr = float(self.config.hparams.train.learning_rate)
+            batch_size = float(self.config.hparams.train.batch_size)
+
+            # 3) filename like “GIN_mlp_gwnce_ep02_lr1.0e-03_bs64_val_mcc0.1234.pt”
+            fname = (
+                f"{model_name}_{decoder_name}_{loss_name}"
+                f"_ep{epoch:02d}"
+                f"_lr{lr:.1e}"
+                f"_bs{int(batch_size)}"
+                f"_{self.monitor}{current_value:.4f}.pt"
+            )
+            filepath = exp_dir / fname
+        else:
+            # fallback to the original hydra‐style filename
+            filepath = self.base_dir / f"{self.filename_tpl.format(epoch=epoch, val_loss=current_value)}.pt"
+
+        # print(filepath)
+        # Save
         self._save_model(model, filepath, current_value)
-        self.best_value              = current_value
-        self.best_k_models[filepath] = current_value
 
-        # prune worst if too many
+        # Update bookkeeping
+        self.best_value                = current_value
+        self.best_k_models[filepath]   = current_value
+
+        # Prune oldest/worst
         if len(self.best_k_models) > self.save_top_k:
-            # worst = highest if mode=='min', lowest if mode=='max'
-            worst_file = min(
+            # remove the worst (highest metric if mode='min', lowest if 'max')
+            worst = min(
                 self.best_k_models.items(),
                 key=lambda kv: kv[1] if self.mode=='max' else -kv[1]
             )[0]
-            worst_file.unlink()
-            del self.best_k_models[worst_file]
+            worst.unlink()
+            del self.best_k_models[worst]
 
         return True
 
     def _save_model(self, model, filepath: Path, value):
-        # build the dict
         ckpt = {
             'model_state_dict': model.state_dict(),
             self.monitor:      value
         }
-        # inject your config (deeply resolve any interpolations)
+        # also stash your full resolved Hydra config for perfect reproducibility
         if self.config is not None:
             ckpt['config'] = OmegaConf.to_container(self.config, resolve=True)
 
         torch.save(ckpt, filepath)
 
-        
-
 
 
 
 # import torch
-# import wandb
 # from pathlib import Path
+# from omegaconf import OmegaConf
 
 # class EarlyStopping:
 #     def __init__(self, patience=7, min_delta=0, mode='min'):
-#         self.patience = patience
-#         self.min_delta = min_delta
-#         self.mode = mode
-#         self.counter = 0
-#         self.best_value = None
-#         self.early_stop = False
-        
+#         self.patience    = patience
+#         self.min_delta   = min_delta
+#         self.mode        = mode
+#         self.counter     = 0
+#         self.best_value  = None
+#         self.early_stop  = False
+
 #     def __call__(self, current_value):
 #         if self.best_value is None:
 #             self.best_value = current_value
 #             return False
-            
+
 #         if self.mode == 'min':
-#             if current_value < self.best_value - self.min_delta:
-#                 self.best_value = current_value
-#                 self.counter = 0
-#             else:
-#                 self.counter += 1
+#             improved = current_value < self.best_value - self.min_delta
 #         else:
-#             if current_value > self.best_value + self.min_delta:
-#                 self.best_value = current_value
-#                 self.counter = 0
-#             else:
-#                 self.counter += 1
-                
+#             improved = current_value > self.best_value + self.min_delta
+
+#         if improved:
+#             self.best_value = current_value
+#             self.counter    = 0
+#         else:
+#             self.counter   += 1
+
 #         if self.counter >= self.patience:
 #             self.early_stop = True
-            
+
 #         return self.early_stop
 
+
 # class ModelCheckpoint:
-#     def __init__(self, dirpath, filename, monitor='val_loss', mode='min', save_top_k=3):
-#         self.dirpath = Path(dirpath)
+#     """
+#     Save your model + training config into each checkpoint.
+#     """
+#     def __init__(
+#         self,
+#         dirpath: str,
+#         filename: str,
+#         monitor: str = 'val_loss',
+#         mode: str    = 'min',
+#         save_top_k: int = 3,
+#         config: object = None,
+#     ):
+#         self.dirpath       = Path(dirpath)
 #         self.dirpath.mkdir(parents=True, exist_ok=True)
-#         self.filename = filename
-#         self.monitor = monitor
-#         self.mode = mode
-#         self.save_top_k = save_top_k
+#         self.filename      = filename
+#         self.monitor       = monitor
+#         self.mode          = mode
+#         self.save_top_k    = save_top_k
 #         self.best_k_models = {}
-#         self.best_value = None
-        
+#         self.best_value    = None
+#         # stash the full Hydra config
+#         self.config        = config
+
 #     def __call__(self, model, current_value, epoch):
 #         filepath = self.dirpath / f"{self.filename.format(epoch=epoch, val_loss=current_value)}.pt"
-        
+
+#         # decide whether to keep this checkpoint
+#         save_it = False
 #         if len(self.best_k_models) < self.save_top_k:
-#             self._save_model(model, filepath, current_value)
-#             self.best_value = current_value
-#             return True
-            
-#         if self.mode == 'min':
-#             if current_value < self.best_value:
-#                 self._save_model(model, filepath, current_value)
-#                 self.best_value = current_value
-#                 return True
-#         else:
-#             if current_value > self.best_value:
-#                 self._save_model(model, filepath, current_value)
-#                 self.best_value = current_value
-#                 return True
-                
-#         return False
-    
-#     def _save_model(self, model, filepath, value):
-#         torch.save({
-#             'model_state_dict': model.state_dict(),
-#             f'{self.monitor}': value
-#         }, filepath)
-#         self.best_k_models[filepath] = value
-        
+#             save_it = True
+#         elif self.mode == 'min' and current_value < self.best_value:
+#             save_it = True
+#         elif self.mode != 'min' and current_value > self.best_value:
+#             save_it = True
+
+#         """
+#         NOTE: comment this line to save the model checkpoint file anyways
+#         """
+#         if not save_it:
+#             return False
+
+#         # print("Saving model checkpoint...")
+
+#         # actually write it
+#         self._save_model(model, filepath, current_value)
+#         self.best_value              = current_value
+#         self.best_k_models[filepath] = current_value
+
+#         # prune worst if too many
 #         if len(self.best_k_models) > self.save_top_k:
-#             worst_file = min(self.best_k_models.items(), 
-#                            key=lambda x: x[1] if self.mode == 'max' else -x[1])[0]
-#             Path(worst_file).unlink()
+#             # worst = highest if mode=='min', lowest if mode=='max'
+#             worst_file = min(
+#                 self.best_k_models.items(),
+#                 key=lambda kv: kv[1] if self.mode=='max' else -kv[1]
+#             )[0]
+#             worst_file.unlink()
 #             del self.best_k_models[worst_file]
+
+#         return True
+
+#     def _save_model(self, model, filepath: Path, value):
+#         # build the dict
+#         ckpt = {
+#             'model_state_dict': model.state_dict(),
+#             self.monitor:      value
+#         }
+#         # inject your config (deeply resolve any interpolations)
+#         if self.config is not None:
+#             ckpt['config'] = OmegaConf.to_container(self.config, resolve=True)
+
+#         torch.save(ckpt, filepath)
+
+        
+
+
+
 
 
 """

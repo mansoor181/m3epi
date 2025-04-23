@@ -88,6 +88,35 @@ code/
 └─README.md
 ```
 
+```
+results/
+  ablation/         # select the best model/framework setup based on CV and seeds 
+    <model_name>/           # e.g. GIN/
+      <decoder_type>/           # e.g. MLP/Dot
+        <loss>/             # or “ce+infonce”
+          checkpoints/
+            GIN_mlp_ce+gwnce_ep05_lr1e-3_bs32_val_loss0.1234.pt
+          summary/        
+            GIN_mlp_ce+gwnce_ep05_lr1e-3_bs32_val_loss0.1234.csv # all runs
+            GIN_mlp_ce+gwnce_ep05_lr1e-3_bs32_val_loss0.1234_cv_aggregated.csv # k-fold cv aggregated
+            GIN_mlp_ce+gwnce_results_summary.csv # aggregated for multiple seeds
+  sweep/      # tune the hyperparameters of the best model 
+    sweep_id/
+      run1.yaml
+      run2.yaml
+  final/    # train the selected best models on the sweeped hparams and generate results summary stats
+    <model_name>/           # e.g. GIN/
+      <decoder_type>/           # e.g. MLP/Dot
+        <loss>/             # or “ce+infonce”
+          checkpoints/      # don't save checkpoints for sweeps until best config is found
+            GIN_mlp_ce+gwnce_ep05_lr1e-3_bs32_val_loss0.1234.pt
+          summary/        
+            GIN_mlp_ce+gwnce_ep05_lr1e-3_bs32_val_loss0.1234.csv # all runs
+            GIN_mlp_ce+gwnce_ep05_lr1e-3_bs32_val_loss0.1234_cv_aggregated.csv # k-fold cv aggregated
+            GIN_mlp_ce+gwnce_results_summary.csv # aggregated for multiple seeds
+  figures/
+```
+
 Training for the M3Epi model with the dataset
 
 ```
@@ -101,3 +130,157 @@ PSI-BLAST installation:
 - gzip -d < uniref50.fasta.gz > uniref.fasta
 - makeblastdb -in uniref.fasta -dbtype prot -out blastdb/uniref50_db
 - psiblast -query seq.fasta -db uniref50_db -num_iterations 3 -out_ascii_pssm query.pssm -out output.txt
+
+##############################################
+
+
+## 8 Single “best” checkpoint per run, nice file‑names
+
+
+step	details
+Why	Make results reproducible and easy to grep when you have dozens of runs.
+Code touch	model/callbacks.py
+• add arg run_name so the folder is …/checkpoints/<run_name>/
+• compose filename:
+fname = f"{cfg.model.name}_{cfg.loss.contrastive.name}_E{epoch:02d}_lr{cfg.hparams.train.learning_rate:.0e}_mcc{val_mcc:.3f}.pt"
+Config	Add to callbacks.yaml
+dirpath: ${results_dir}/checkpoints/${now:%Y%m%d_%H%M}_${mode}
+W&B	Log an artifact with the same name – you can download it later in one click.
+Deliverable	Table S1 in appendix that lists run‑ID ↔ checkpoint‑file.
+## 9 Results CSV per run and k‑fold summary
+
+
+step	details
+Why	Automatable stats & pretty tables without re‑running Python.
+Code touch	At the end of main.py after the print("\n=== Final ===") block: ```python
+import pandas as pd, csv, pathlib	
+row = {"run_id": wandb.run.id if cfg.logging_method=="wandb" else datetime.now().isoformat(),	
+css
+Copy
+Edit
+   "model": cfg.model.name,
+   "loss": cfg.loss.contrastive.name,
+   "lr": cfg.hparams.train.learning_rate,
+   **{f"mean_{k}": v for k,v in avg.items()},
+   **{f"std_{k}": v for k,v in std.items()}}
+out_csv = pathlib.Path(cfg.results_dir) / "summary.csv" pd.DataFrame([row]).to_csv(out_csv, mode="a", header=not out_csv.exists(), index=False)``` | | Analysis | Python/pandas one‑liner produces LaTeX table from summary.csv. |
+
+## 10 Ablation‑study scaffolding
+
+### 10.1 Dimensions of the Ablation
+
+Factor	Values
+GNN architecture	GCN, GAT, GIN, GraphSAGE, (future: LSPE, GraphWalk)
+Decoder	Dot‐product, MLP (1–2 hidden layers), Cross‐Attention
+Loss	CE only, CE + InfoNCE, CE + GW‑NCE
+Seeds	5 distinct random seeds
+### 10.2 Experimental Matrix
+Loop over every combination of (GNN, Decoder, Loss).
+
+For each:
+
+In train mode, run 5 × k‑fold (e.g. 5 seeds × 5 folds = 25 runs).
+
+Collect and average:
+
+Node metrics: AUROC, AUPRC, MCC
+
+Edge metrics if desired
+
+Training time
+
+Save:
+
+Per‐fold CSV (as above)
+
+One aggregated CSV over seeds:
+.../ablation/<model>/<decoder>/<loss>/summary/agg_across_seeds.csv
+
+### 10.3 Figures & Tables
+Bar charts of “mean ± std” for each metric across architectures / losses / decoders.
+
+Line plots or heatmaps to show interaction (e.g. GNN vs Loss).
+
+ROC / PR curves for the top 3 configurations.
+
+10‑A  Shell helper
+bash
+Copy
+Edit
+# ablate.sh
+models=(GCN GAT GIN)           # later add GraphSAGE …
+losses=(ce infonce gwnce)
+for m in "${models[@]}"; do
+  for l in "${losses[@]}"; do
+    python main.py model.name=$m loss.contrastive.name=$l \
+        wandb.tags="[ablation]" wandb.name="${m}_${l}"
+  done
+done
+10‑B  Hydra template
+Add conf/mode/ablation.yaml:
+
+yaml
+Copy
+Edit
+mode: train
+hparams:
+  train:
+    num_epochs: 10
+    kfolds: 3
+wandb:
+  tags: ["ablation"]
+Run: python main.py +mode=ablation …
+
+10‑C  Paper artefacts
+Table 2 – MCC/AUPRC per (model, loss) ± std.
+
+Figure 3 – bar‑plot of ΔMCC versus CE‑only baseline.
+
+## 11 Explicit test split
+
+
+step	details
+Data	Pre‑split dataset into train/val/test indices once, save to split.pkl so every model sees the same test set.
+Config	conf/mode/test.yaml:
+mode: test hparams.train.kfolds: 1
+main.py	If cfg.mode=="test" skip CV and evaluate once on the frozen test set.
+Return metrics JSON so CI can assert performance ≥ threshold.
+Deliverable	Section “Generalisation” – report blind‑test MCC & 95 % CI.
+## 12 Wall‑time profiling
+
+
+step	details
+Code touch	Wrap epoch loops with time.perf_counter(); accumulate train_sec and val_sec.
+W&B logging	wandb.log({"epoch_train_time": train_t, "epoch_val_time": val_t})
+Analysis	Scatter plot training‑time vs MCC over all runs to show efficiency trade‑off (Figure S4).
+## 13 Contrastive‑loss as true config knob
+
+Already done in loss.yaml & main.py.
+Extra polish
+
+Provide loss.contrastive.name: "none" path that skips InfoNCE entirely.
+
+In visualize_embeddings.py set dot‑color shape depending on loss (nice figure for “latent‑space separation improves with InfoNCE”).
+
+Good‑practice checklist (applies to every experiment)
+
+item	rationale	tip
+1 seed ≠ research	Show robustness	always run 3–5 seeds (Hydra sweep: seed=range(3))
+Determinism	reviewers love it	torch.use_deterministic_algorithms(True) during test
+Unit tests	stops silent NaNs	pytest -q tests/ before every sweep
+Tag everything	future‑you will forget	wandb.tags: ["paper_v1", cfg.model.name, cfg.loss.contrastive.name]
+Notebook‑less plots	CI‑friendly	save PDF/PNG via Matplotlib, script in /analysis/
+Suggested execution order
+Smoke‑test: mode=dev on laptop (< 1 min)
+
+Baseline grid: run ablate.sh on a single GPU node overnight
+
+Pick best trio (model, loss, hyper‑params) → run mode=train with 5 folds × 5 seeds
+
+Final blind test with the best checkpoint
+
+Embedding t‑SNE using that checkpoint
+
+Write results: tables + figures straight from CSV / PNG folders
+
+That workflow keeps experiments reproducible, your W&B dashboard tidy, and paper‑ready artefacts one command away. Good luck — ping me when you’re ready for the next punch‑list!

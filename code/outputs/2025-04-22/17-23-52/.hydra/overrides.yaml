@@ -1,0 +1,4 @@
+- mode=train
+- model.name=GCN
+- model.decoder.type=dot
+- loss.contrastive.name=infonce
