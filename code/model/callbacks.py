@@ -41,84 +41,75 @@ class EarlyStopping:
 
 class ModelCheckpoint:
     """
-    Save only the top‐k checkpoints per experiment, with filenames encoding:
-      <model>_<loss>_ep<epoch>_lr<lr>_<monitor><metric>.pt
-    and organized under:
-      dirpath/<model>/<loss>/...
+    Save only top-k checkpoints in ablation/train modes;
+    skip in test mode.
     """
-    def __init__(
-        self,
-        dirpath: str,
-        filename: str,            # ignored if config is passed
-        monitor: str    = 'val_loss',
-        mode: str       = 'min',
-        save_top_k: int = 3,
-        config: object  = None,
-    ):
-        # base dir where all experiments live
+    def __init__(self,
+                 dirpath: str,
+                 filename: str,
+                 monitor: str    = 'val_loss',
+                 mode: str       = 'min',
+                 save_top_k: int = 3,
+                 config: object  = None):
         self.base_dir      = Path(dirpath)
         self.filename_tpl  = filename
         self.monitor       = monitor
         self.mode          = mode
         self.save_top_k    = save_top_k
-        self.best_k_models = {}     # filepath -> metric
+        self.best_k_models = {}
         self.best_value    = None
         self.config        = config
+        self.base_dir.mkdir(parents=True, exist_ok=True)
 
     def __call__(self, model, current_value, epoch):
-        # Decide if this checkpoint is “better” than our best_k_models
+        # 1) skip checkpoints in test mode
+        if self.config is not None and self.config.mode.mode == "test":
+            return False
+
+        # 2) decide if we should save
         if self.best_value is None:
-            should_save = True
+            save_it = True
         else:
             if len(self.best_k_models) < self.save_top_k:
-                should_save = True
+                save_it = True
             elif self.mode == 'min':
-                should_save = current_value < self.best_value
+                save_it = current_value < self.best_value
             else:
-                should_save = current_value > self.best_value
+                save_it = current_value > self.best_value
 
-        if not should_save:
+        if not save_it:
             return False
-        
 
-        # Build checkpoint path & filename
-        if self.config is not None:
-            # 1) experiment sub‐dir: base_dir/<model>/<loss>/
-            model_name = self.config.model.name
-            decoder_name = self.config.model.decoder.type
-            loss_name  = self.config.loss.contrastive.name or "ce"
-            exp_dir    = self.base_dir / model_name / decoder_name / loss_name / "checkpoints"
-            # print(exp_dir)
-            exp_dir.mkdir(parents=True, exist_ok=True)
+        # 3) build path <base>/<model>/<decoder>/<loss>/… 
+        model_name   = self.config.model.name
+        decoder_name = self.config.model.decoder.type
+        loss_name    = self.config.loss.contrastive.name or "ce"
+        exp_dir = self.base_dir / model_name / decoder_name / loss_name
+        exp_dir.mkdir(parents=True, exist_ok=True)
 
-            # 2) pull learning rate
-            lr = float(self.config.hparams.train.learning_rate)
-            batch_size = float(self.config.hparams.train.batch_size)
+        lr  = float(self.config.hparams.train.learning_rate)
+        bs  = int(self.config.hparams.train.batch_size)
+        fname = (
+            f"{model_name}_{decoder_name}_{loss_name}"
+            f"_ep{epoch:02d}"
+            f"_lr{lr:.1e}"
+            f"_bs{bs}"
+            f"_{self.monitor}{current_value:.4f}.pt"
+        )
+        filepath = exp_dir / fname
 
-            # 3) filename like “GIN_mlp_gwnce_ep02_lr1.0e-03_bs64_val_mcc0.1234.pt”
-            fname = (
-                f"{model_name}_{decoder_name}_{loss_name}"
-                f"_ep{epoch:02d}"
-                f"_lr{lr:.1e}"
-                f"_bs{int(batch_size)}"
-                f"_{self.monitor}{current_value:.4f}.pt"
-            )
-            filepath = exp_dir / fname
-        else:
-            # fallback to the original hydra‐style filename
-            filepath = self.base_dir / f"{self.filename_tpl.format(epoch=epoch, val_loss=current_value)}.pt"
+        # 4) save
+        ckpt = {
+            'model_state_dict': model.state_dict(),
+            self.monitor:      current_value
+        }
+        ckpt['config'] = OmegaConf.to_container(self.config, resolve=True)
+        torch.save(ckpt, filepath)
 
-        # print(filepath)
-        # Save
-        self._save_model(model, filepath, current_value)
-
-        # Update bookkeeping
-        self.best_value                = current_value
-        self.best_k_models[filepath]   = current_value
-
-        # Prune oldest/worst
+        # 5) update best-k & prune
+        self.best_value              = current_value
+        self.best_k_models[filepath] = current_value
         if len(self.best_k_models) > self.save_top_k:
-            # remove the worst (highest metric if mode='min', lowest if 'max')
             worst = min(
                 self.best_k_models.items(),
                 key=lambda kv: kv[1] if self.mode=='max' else -kv[1]
@@ -127,17 +118,107 @@ class ModelCheckpoint:
             del self.best_k_models[worst]
 
         return True
+    
 
-    def _save_model(self, model, filepath: Path, value):
-        ckpt = {
-            'model_state_dict': model.state_dict(),
-            self.monitor:      value
-        }
-        # also stash your full resolved Hydra config for perfect reproducibility
-        if self.config is not None:
-            ckpt['config'] = OmegaConf.to_container(self.config, resolve=True)
+# class ModelCheckpoint:
+#     """
+#     Save only the top‐k checkpoints per experiment, with filenames encoding:
+#       <model>_<loss>_ep<epoch>_lr<lr>_<monitor><metric>.pt
+#     and organized under:
+#       dirpath/<model>/<loss>/...
+#     """
+#     def __init__(
+#         self,
+#         dirpath: str,
+#         filename: str,            # ignored if config is passed
+#         monitor: str    = 'val_loss',
+#         mode: str       = 'min',
+#         save_top_k: int = 3,
+#         config: object  = None,
+#     ):
+#         # base dir where all experiments live
+#         self.base_dir      = Path(dirpath)
+#         self.filename_tpl  = filename
+#         self.monitor       = monitor
+#         self.mode          = mode
+#         self.save_top_k    = save_top_k
+#         self.best_k_models = {}     # filepath -> metric
+#         self.best_value    = None
+#         self.config        = config
 
-        torch.save(ckpt, filepath)
+#     def __call__(self, model, current_value, epoch):
+#         # Decide if this checkpoint is “better” than our best_k_models
+#         if self.best_value is None:
+#             should_save = True
+#         else:
+#             if len(self.best_k_models) < self.save_top_k:
+#                 should_save = True
+#             elif self.mode == 'min':
+#                 should_save = current_value < self.best_value
+#             else:
+#                 should_save = current_value > self.best_value
+
+#         if not should_save:
+#             return False
+        
+
+#         # Build checkpoint path & filename
+#         if self.config is not None:
+#             # 1) experiment sub‐dir: base_dir/<model>/<loss>/
+#             model_name = self.config.model.name
+#             decoder_name = self.config.model.decoder.type
+#             loss_name  = self.config.loss.contrastive.name or "ce"
+#             exp_dir    = self.base_dir / model_name / decoder_name / loss_name / "checkpoints"
+#             # print(exp_dir)
+#             exp_dir.mkdir(parents=True, exist_ok=True)
+
+#             # 2) pull learning rate
+#             lr = float(self.config.hparams.train.learning_rate)
+#             batch_size = float(self.config.hparams.train.batch_size)
+
+#             # 3) filename like “GIN_mlp_gwnce_ep02_lr1.0e-03_bs64_val_mcc0.1234.pt”
+#             fname = (
+#                 f"{model_name}_{decoder_name}_{loss_name}"
+#                 f"_ep{epoch:02d}"
+#                 f"_lr{lr:.1e}"
+#                 f"_bs{int(batch_size)}"
+#                 f"_{self.monitor}{current_value:.4f}.pt"
+#             )
+#             filepath = exp_dir / fname
+#         else:
+#             # fallback to the original hydra‐style filename
+#             filepath = self.base_dir / f"{self.filename_tpl.format(epoch=epoch, val_loss=current_value)}.pt"
+
+#         # print(filepath)
+#         # Save
+#         self._save_model(model, filepath, current_value)
+
+#         # Update bookkeeping
+#         self.best_value                = current_value
+#         self.best_k_models[filepath]   = current_value
+
+#         # Prune oldest/worst
+#         if len(self.best_k_models) > self.save_top_k:
+#             # remove the worst (highest metric if mode='min', lowest if 'max')
+#             worst = min(
+#                 self.best_k_models.items(),
+#                 key=lambda kv: kv[1] if self.mode=='max' else -kv[1]
+#             )[0]
+#             worst.unlink()
+#             del self.best_k_models[worst]
+
+#         return True
+
+#     def _save_model(self, model, filepath: Path, value):
+#         ckpt = {
+#             'model_state_dict': model.state_dict(),
+#             self.monitor:      value
+#         }
+#         # also stash your full resolved Hydra config for perfect reproducibility
+#         if self.config is not None:
+#             ckpt['config'] = OmegaConf.to_container(self.config, resolve=True)
+
+#         torch.save(ckpt, filepath)
 
 
 

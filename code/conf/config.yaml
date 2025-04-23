@@ -1,27 +1,62 @@
+# -------------------------------------------------------------------
+# Core configuration.  Default mode is 'train'; override via +mode=dev or +mode=test
+# -------------------------------------------------------------------
 defaults:
   - _self_
-  - mode: dev # choices: train, dev ## populates dev/train yaml files
+  - mode: test      # choices: train, dev, test
   - hparams: hparams
-  - model: model
-  - loss: loss
-  - wandb: wandb
+  - model:   model
+  - loss:    loss
+  - wandb:   wandb
   - callbacks: callbacks
 
+# mode: train          # default; +mode=dev or +mode=test will load conf/mode/*.yaml
 data_dir: ${hydra:runtime.cwd}/../../../data/asep/m3epi
 results_dir: ${hydra:runtime.cwd}/../../../results/hgraphepi/m3epi
-try_gpu: true 
+try_gpu: true
 logging_method: wandb
 keep_interim_ckpts: true
 num_threads: 4
 seed: 42
 
-
-# new section for visualization defaults
+# -------------------------------------------------------
+# For visualize_embeddings.py
+# -------------------------------------------------------
 visualize:
-  # relative to project root
   checkpoint: ${hydra:runtime.cwd}/../../../results/hgraphepi/m3epi/checkpoints/model-02-7.17.pt
   batch_size: 32
-  out_dir:    ${hydra:runtime.cwd}/../../../results/hgraphepi/m3epi/figures      # save tsne_*.png here
+  out_dir:    ${hydra:runtime.cwd}/../../../results/hgraphepi/m3epi/figures
+
+
+
+
+# defaults:
+#   - _self_
+#   - mode: dev # choices: train, dev ## populates dev/train yaml files
+#   - hparams: hparams
+#   - model: model
+#   - loss: loss
+#   - wandb: wandb
+#   - callbacks: callbacks
+
+# data_dir: ${hydra:runtime.cwd}/../../../data/asep/m3epi
+# results_dir: ${hydra:runtime.cwd}/../../../results/hgraphepi/m3epi
+# try_gpu: true 
+# logging_method: wandb
+# keep_interim_ckpts: true
+# num_threads: 4
+# seed: 42
+
+
+# # new section for visualization defaults
+# visualize:
+#   # relative to project root
+#   checkpoint: ${hydra:runtime.cwd}/../../../results/hgraphepi/m3epi/checkpoints/model-02-7.17.pt
+#   batch_size: 32
+#   out_dir:    ${hydra:runtime.cwd}/../../../results/hgraphepi/m3epi/figures      # save tsne_*.png here
+
+
+
 
 
 # modifying mode/train.yaml will not effect experiments

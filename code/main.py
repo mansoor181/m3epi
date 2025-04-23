@@ -113,7 +113,7 @@ from model.loss import (
 )
 from model.metric import EpitopeMetrics
 from model.callbacks import EarlyStopping, ModelCheckpoint
-from utils import seed_everything, get_device, load_data, initialize_wandb
+from utils import seed_everything, get_device, load_data, initialize_wandb, train_test_split
 
 torch.set_float32_matmul_precision("high")
 
@@ -319,84 +319,89 @@ def validate_epoch(model, loader, device, metrics, cfg):
 @hydra.main(config_path="conf", config_name="config")
 def main(cfg: DictConfig):
     start_time = time.time()
-
     seed_everything(cfg.seed)
     device = get_device()
 
-    # 1) load full data
-    data = load_data(os.path.join(cfg.data_dir,
-                                  "asep_mipe_transformed_100_examples.pkl"))
+    # 1) Load data
+    full_data = load_data(os.path.join(cfg.data_dir,
+                                      "asep_mipe_transformed_100_examples.pkl"))
+    
+    print(cfg.mode.mode)
 
-    # 2) MODE‑SPECIFIC HANDLING
-    if cfg.mode.mode == "dev":
-        # only take first N examples
-        data = data[: cfg.mode.data.dev_subset]
+    # 2) Train/test split if in test mode
+    if cfg.mode.mode == "test":
+        train_data, test_data = train_test_split(full_data, cfg.seed)
+    else:
+        train_data, test_data = full_data, None
 
-    # 3) initialize wandb once for train & sweep (& offline for dev)
+    # 3) initialize W&B
     if cfg.logging_method == "wandb":
         initialize_wandb(cfg)
 
-    # 4) set up cross‑validation folds
+    # 4) build CV or single-fold iterator
     kf = KFold(n_splits=cfg.hparams.train.kfolds,
                shuffle=True, random_state=cfg.seed)
-    all_best = []
+    if cfg.mode.mode == "test":
+        splits = [(list(range(len(train_data))), [])]
+    else:
+        splits = list(kf.split(train_data))
 
-    for fold, (train_idx, val_idx) in enumerate(kf.split(data)):
+    all_best = []
+    met = EpitopeMetrics()
+
+    for fold, (train_idx, val_idx) in enumerate(splits):
         print(f"\n▶︎ Fold {fold+1}")
-        train_dl = create_dataloader([data[i] for i in train_idx], cfg)
-        val_dl   = create_dataloader([data[i] for i in val_idx],   cfg)
+        train_subset = [train_data[i] for i in train_idx]
+        train_dl = create_dataloader(train_subset, cfg)
+
+        if cfg.mode.mode == "test":
+            val_dl = None
+        else:
+            val_subset = [train_data[i] for i in val_idx]
+            val_dl = create_dataloader(val_subset, cfg)
 
         model = M3EPI(cfg).to(device)
         opt   = Adam(model.parameters(),
                      lr=cfg.hparams.train.learning_rate,
                      weight_decay=cfg.hparams.train.weight_decay)
 
-        # only use early‑stopping & checkpoint in 'train' or 'dev'
-        # print(cfg.mode)
         if cfg.mode.mode in ("train", "dev"):
             es = EarlyStopping(**cfg.callbacks.early_stopping)
-            # ck = ModelCheckpoint(**cfg.callbacks.model_checkpoint)
-            # print("Saving model checkpoint...")
-
             ck = ModelCheckpoint(**cfg.callbacks.model_checkpoint, config=cfg)
         else:
-            # print("Don't save model checkpoint for sweep...")
             es = ck = None
 
-        met = EpitopeMetrics()
-
         for epoch in range(cfg.hparams.train.num_epochs):
-            tr_loss, tr_met = train_epoch(model, train_dl, opt,
-                                          device, met, cfg)
-            vl_loss, vl_met = validate_epoch(model, val_dl,
-                                             device, met, cfg)
+            tr_loss, _ = train_epoch(model, train_dl, opt, device, met, cfg)
+            if val_dl is not None:
+                vl_loss, vl_met = validate_epoch(model, val_dl, device, met, cfg)
+            else:
+                vl_loss, vl_met = tr_loss, met.compute()
 
-            # log metrics
-            if cfg.logging_method == "wandb":
-                wandb.log({
-                    f"fold{fold+1}/train_loss": tr_loss,
-                    f"fold{fold+1}/val_loss":   vl_loss,
-                    **{f"fold{fold+1}/train_{k}": v for k,v in tr_met.items()},
-                    **{f"fold{fold+1}/val_{k}":   v for k,v in vl_met.items()},
-                    "epoch": epoch
-                })
-
-            # checkpoint & early stop
+            # log & checkpoint
             if ck is not None:
                 ck(model, vl_loss, epoch)
             if es is not None and es(vl_loss):
-                print(f"⏹ Early stopping @ epoch {epoch}")
                 break
 
         all_best.append(vl_met)
 
-    # aggregate & print
+    # 5) report CV or test
     avg = {k: np.mean([m[k] for m in all_best]) for k in all_best[0]}
     std = {k: np.std([m[k] for m in all_best])  for k in all_best[0]}
     print("\n=== Final ===")
     for k in avg:
         print(f"{k}: {avg[k]:.4f} ± {std[k]:.4f}")
 
+    # 6) if in TEST mode, evaluate hold-out
+    if cfg.mode.mode == "test":
+        test_dl = create_dataloader(test_data, cfg)
+        _, test_met = validate_epoch(model, test_dl, device, met, cfg)
+        print("\n=== Test ===")
+        for k, v in test_met.items():
+            print(f"{k}: {v:.4f}")
+
+    # 7) save per‐fold summary (unchanged) …
     ####################### saving results summary #############################
     # measure training duration
     elapsed = time.time() - start_time
@@ -435,20 +440,34 @@ def main(cfg: DictConfig):
     if cfg.logging_method == "wandb":
         wandb.finish()
 
-
 if __name__ == "__main__":
     main()
 
 
 # @hydra.main(config_path="conf", config_name="config")
 # def main(cfg: DictConfig):
+#     start_time = time.time()
+
 #     seed_everything(cfg.seed)
 #     device = get_device()
-#     data   = load_data(os.path.join(cfg.data_dir, "asep_mipe_transformed_100_examples.pkl"))
+#     print("Using device: ", device)
+
+#     # 1) load full data
+#     data = load_data(os.path.join(cfg.data_dir,
+#                                   "asep_mipe_transformed_100_examples.pkl"))
+
+#     # 2) MODE‑SPECIFIC HANDLING
+#     if cfg.mode.mode == "dev":
+#         # only take first N examples
+#         data = data[: cfg.mode.data.dev_subset]
+
+#     # 3) initialize wandb once for train & sweep (& offline for dev)
 #     if cfg.logging_method == "wandb":
 #         initialize_wandb(cfg)
 
-#     kf = KFold(n_splits=cfg.hparams.train.kfolds, shuffle=True, random_state=cfg.seed)
+#     # 4) set up cross‑validation folds
+#     kf = KFold(n_splits=cfg.hparams.train.kfolds,
+#                shuffle=True, random_state=cfg.seed)
 #     all_best = []
 
 #     for fold, (train_idx, val_idx) in enumerate(kf.split(data)):
@@ -461,14 +480,27 @@ if __name__ == "__main__":
 #                      lr=cfg.hparams.train.learning_rate,
 #                      weight_decay=cfg.hparams.train.weight_decay)
 
-#         es = EarlyStopping(**cfg.callbacks.early_stopping)
-#         ck = ModelCheckpoint(**cfg.callbacks.model_checkpoint)
+#         # only use early‑stopping & checkpoint in 'train' or 'dev'
+#         # print(cfg.mode)
+#         if cfg.mode.mode in ("train", "dev"):
+#             es = EarlyStopping(**cfg.callbacks.early_stopping)
+#             # ck = ModelCheckpoint(**cfg.callbacks.model_checkpoint)
+#             # print("Saving model checkpoint...")
+
+#             ck = ModelCheckpoint(**cfg.callbacks.model_checkpoint, config=cfg)
+#         else:
+#             # print("Don't save model checkpoint for sweep...")
+#             es = ck = None
+
 #         met = EpitopeMetrics()
 
 #         for epoch in range(cfg.hparams.train.num_epochs):
-#             tr_loss, tr_met = train_epoch(model, train_dl, opt, device, met, cfg)
-#             vl_loss, vl_met = validate_epoch(model, val_dl,   device, met, cfg)
+#             tr_loss, tr_met = train_epoch(model, train_dl, opt,
+#                                           device, met, cfg)
+#             vl_loss, vl_met = validate_epoch(model, val_dl,
+#                                              device, met, cfg)
 
+#             # log metrics
 #             if cfg.logging_method == "wandb":
 #                 wandb.log({
 #                     f"fold{fold+1}/train_loss": tr_loss,
@@ -478,19 +510,56 @@ if __name__ == "__main__":
 #                     "epoch": epoch
 #                 })
 
-#             ck(model, vl_loss, epoch)
-#             if es(vl_loss):
+#             # checkpoint & early stop
+#             if ck is not None:
+#                 ck(model, vl_loss, epoch)
+#             if es is not None and es(vl_loss):
 #                 print(f"⏹ Early stopping @ epoch {epoch}")
 #                 break
 
 #         all_best.append(vl_met)
 
-#     # Final aggregate
+#     # aggregate & print
 #     avg = {k: np.mean([m[k] for m in all_best]) for k in all_best[0]}
 #     std = {k: np.std([m[k] for m in all_best])  for k in all_best[0]}
 #     print("\n=== Final ===")
 #     for k in avg:
 #         print(f"{k}: {avg[k]:.4f} ± {std[k]:.4f}")
+
+#     ####################### saving results summary #############################
+#     # measure training duration
+#     elapsed = time.time() - start_time
+
+#     # where to save
+#     base = Path(cfg.callbacks.model_checkpoint.dirpath) \
+#            / cfg.model.name \
+#            / cfg.model.decoder.type \
+#            / (cfg.loss.contrastive.name or "ce")
+#     summary_dir = base / "summary"
+#     summary_dir.mkdir(parents=True, exist_ok=True)
+
+#     # 1) per‑fold CSV
+#     per_fold_file = summary_dir / f"{cfg.model.name}_{cfg.model.decoder.type}_{cfg.loss.contrastive.name}_"
+#     per_fold_file = per_fold_file.with_name(per_fold_file.name + "cv_folds.csv")
+#     with open(per_fold_file, "w", newline="") as f:
+#         writer = csv.writer(f)
+#         # header
+#         header = ["fold"] + list(all_best[0].keys())
+#         writer.writerow(header + ["train_time_s"])
+#         # one row per fold
+#         for i, met in enumerate(all_best,1):
+#             row = [i] + [met[k].item() for k in header[1:]] + [""]
+#             writer.writerow(row)
+#         # final row: means ± std
+#         means = {k: np.mean([m[k] for m in all_best]) for k in all_best[0]}
+#         stds  = {k: np.std ([m[k] for m in all_best]) for k in all_best[0]}
+#         mean_row = ["mean"] + [f"{means[k]:.4f}±{stds[k]:.4f}" for k in header[1:]] + [f"{elapsed:.1f}"]
+#         writer.writerow(mean_row)
+#     print(f"→ per‐fold summary saved to {per_fold_file}")
+
+#     if cfg.logging_method=="wandb" and fold == cfg.hparams.train.kfolds-1:
+#         wandb.log({"train_time_s": elapsed})
+#     ####################### end saving results summary #############################
 
 #     if cfg.logging_method == "wandb":
 #         wandb.finish()
@@ -499,6 +568,8 @@ if __name__ == "__main__":
 # if __name__ == "__main__":
 #     main()
 
+    
+    
 
 
 

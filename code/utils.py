@@ -1,3 +1,4 @@
+
 """
 TODO: [mansoor]
 
@@ -27,6 +28,22 @@ from pathlib import Path
 from typing import Dict, Any, Optional, Union
 from datetime import datetime
 from omegaconf import OmegaConf
+
+def train_test_split(data: Any, seed: int, test_ratio: float = 0.2) -> tuple:
+    """
+    Perform a single random train/test split.
+    Returns (train_data, test_data).
+    TODO:
+    - use sklearn's train-test split function
+    """
+    rng = np.random.default_rng(seed)
+    n = len(data)
+    perm = rng.permutation(n)
+    cut = int(n * (1 - test_ratio))
+    train_idx, test_idx = perm[:cut], perm[cut:]
+    train_data = [data[i] for i in train_idx]
+    test_data  = [data[i] for i in test_idx]
+    return train_data, test_data
 
 
 def seed_everything(seed: int) -> None:
@@ -301,6 +318,11 @@ def get_k_fold_data(K, i, X):
         else:
             X_train = np.concatenate((X_train, X_part), axis=0)
     return X_train, X_val, X_test
+
+
+
+
+# ----------------------------------------------------
 
 # def evalution_prot(preds, targets):
 #     """

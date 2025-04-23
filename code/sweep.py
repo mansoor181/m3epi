@@ -1,4 +1,12 @@
-import os
+
+import os, logging
+
+# # ─────────────────────────────────────────────────────────────────────────────
+# # Silence the W&B malloc garbage on macOS and only log errors
+# # ─────────────────────────────────────────────────────────────────────────────
+# os.environ["WANDB_SILENT"] = "true"
+# logging.getLogger("wandb").setLevel(logging.ERROR)
+
 import sys
 import subprocess
 import yaml

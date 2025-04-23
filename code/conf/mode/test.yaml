@@ -1,0 +1,4 @@
+# select a single hold-out test split (no CV, no checkpointing)
+mode: test
+
+# nothing else overridden — uses the same hparams, model, loss, etc.

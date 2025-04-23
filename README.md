@@ -65,6 +65,7 @@ code/
 │   ├── loss/loss.yaml
 │   ├── model/model.yaml
 │   ├── metric/metric.yaml
+│   ├── wandb/wandb.yaml
 │   └── mode/
 │       ├── dev.yaml
 │       └── train.yaml
@@ -132,6 +133,80 @@ PSI-BLAST installation:
 - psiblast -query seq.fasta -db uniref50_db -num_iterations 3 -out_ascii_pssm query.pssm -out output.txt
 
 ##############################################
+
+
+## NOTE:
+“Results are reported as mean ± standard-deviation over 5 random seeds; each seed value is itself the average over a 5-fold CV on the training set. The held-out test set is never used for model selection.”
+
+
+
+# Ablation Study Procedure
+
+This document outlines the 4-step procedure for conducting ablation studies: dev → train (CV+HP) → test → aggregate. Below are the changes made to various files to support this procedure.
+
+## File Changes
+
+| File (relative to `code/`) | Action | Reason |
+|-----------------------------|--------|--------|
+| `conf/mode/test.yaml` (new) | ```yaml<br># ← NEW FILE<br>mode: test<br><br>hparams:        # reuse LR, batch, … from defaults<br>auto_resume: false  # don’t load previous ckpt<br><br># 80 / 20 hold-out split will be created on the fly<br># (see utils.py)<br>``` | Declares the test mode so Hydra can be called with `+mode=test`. |
+| `conf/config.yaml` | ```yaml<br>defaults:<br>  - _self_<br>  - mode: train  # dev / test are picked via +mode=xxx<br>  …<br>``` | Lets you override the mode from CLI (`mode=test`). |
+| `utils.py` | ```python<br>def train_test_split(data, seed, test_ratio=0.2):<br>    rng = np.random.default_rng(seed)<br>    idx = rng.permutation(len(data))<br>    split = int(len(data) * (1 - test_ratio))<br>    return data[idx[\:split]], data[idx[split:]]<br>``` | Adds a helper function for a single random split that depends on the seed. |
+| `main.py` | ```python<br>if cfg.mode.mode == "test":<br>    train_data, test_data = train_test_split(data, cfg.seed)<br>else:<br>    train_data, test_data = data, None<br><br>if cfg.mode.mode == "test":<br>    kf_iter = [(range(len(train_data)), [])]  # single “fold”<br>else:<br>    kf_iter = kf.split(train_data)<br>for fold, (train_idx, val_idx) in enumerate(kf_iter):<br>    # (inside loop use train_data[...])<br><br>if cfg.mode.mode == "test":<br>    test_dl = create_dataloader(test_data, cfg)<br>    test_loss, test_met = validate_epoch(model, test_dl, device, met, cfg)<br>    print("\n=== Test ===")<br>    for k,v in test_met.items():<br>        print(f"{k}: {v:.4f}")<br>    # write CSV next step (callbacks)<br>``` | - Separates train data for CV vs. test data.<br>- Ensures no CV loop in test.<br>- Prints and later writes the test metrics. |
+| `model/callbacks.py` | ```python<br>if self.config is not None and self.config.mode.mode == "test":<br>    # don’t save checkpoints during test runs<br>    return False<br>``` | Avoids polluting checkpoints during final testing. |
+| `ablation.py` | ```python<br>cmd = [PYTHON, "main.py"] + [<br>        "mode=test",                # not train<br>        f"model.name={model}",<br>        f"model.decoder.type={decoder}",<br>        f"loss.contrastive.name={loss_name}",<br>        f"seed={seed}",<br>]<br><br># Parsing block still reads the “=== Test ===” section (leave as is).<br><br># Remove k-fold aggregation – instead aggregate across seeds only (already done).<br>``` | Ablation launcher now runs pure test runs for each variant–seed pair. |
+| `paths in ablation.py` | Make sure `PROJECT_ROOT` points to `results/hgraphepi/m3epi/ablation/<model>/<decoder>/<loss>/summary` and use it when saving `raw_ablation_results.csv` and `aggregated_ablation_results.csv`. (You can build it exactly like in callbacks). | Keeps the same hierarchy as training checkpoints. |
+
+## 4-Step Procedure
+
+1. **Development (dev)**: Initial development and testing of the model.
+2. **Training (train)**: Conduct cross-validation (CV) and hyperparameter tuning (HP).
+3. **Testing (test)**: Evaluate the model on a hold-out test set.
+4. **Aggregation**: Aggregate results across different seeds and variants.
+
+This procedure ensures a systematic approach to model development, validation, and testing, providing reliable and reproducible results.
+```bash
+# 1) hyper-parameter search (unchanged)
+python sweep.py +mode=train …
+
+# 2) once best HP picked, run ablation
+python ablation.py
+
+# 3) Testing on a single split (optional)
+python main.py +mode=test  \
+     model.name=GIN model.decoder.type=attention \
+     loss.contrastive.name=gwnce \
+     seed=17
+
+```
+
+ablation.py will now:
+
+1. call main.py mode=test … for every (GNN, decoder, loss, seed)
+
+2. parse the “=== Test ===” block, save raw CSVs and the across-seed means±std
+
+3. no cross-validation takes place in these runs – they use the HP chosen previously.
+
+### Table 1: Performance Metrics for Different Variants (ablation.py)
+
+| GNN / Decoder / Loss       | MCC ↑       | AUROC ↑     | AUPRC ↑     |
+|----------------------------|-------------|-------------|-------------|
+| **GIN · attention · GW-NCE** | **0.312 ± 0.014** | 0.701 ± 0.009 | 0.428 ± 0.012 |
+| GIN · attention · InfoNCE  | 0.297 ± 0.016 | …           | …           |
+| …                          | …           | …           | …           |
+
+**Notes:**
+- Each row represents a different variant.
+- The best MCC value in each GNN block is bolded.
+- Metrics are reported as mean ± standard deviation.
+
+
+
+
+
+
+######################################################
+
 
 
 ## 8 Single “best” checkpoint per run, nice file‑names
@@ -284,3 +359,5 @@ Embedding t‑SNE using that checkpoint
 Write results: tables + figures straight from CSV / PNG folders
 
 That workflow keeps experiments reproducible, your W&B dashboard tidy, and paper‑ready artefacts one command away. Good luck — ping me when you’re ready for the next punch‑list!
+
+
