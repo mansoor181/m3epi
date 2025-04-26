@@ -3,7 +3,7 @@ program: ${hydra:runtime.cwd}/../main.py           # the script to run
 method: bayes             # or grid, random, etc.
 
 metric:
-  name: val_average_precision    # e.g. one of your metrics
+  name: auprc    # e.g. auprc metrics
   goal: maximize
 
 # Here, `parameters` maps directly to Hydra override paths:

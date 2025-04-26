@@ -9,6 +9,8 @@ defaults:
   - loss:    loss
   - wandb:   wandb
   - callbacks: callbacks
+  - override hydra/hydra_logging: disabled  
+  - override hydra/job_logging: disabled  
 
 # mode: train          # default; +mode=dev or +mode=test will load conf/mode/*.yaml
 data_dir: ${hydra:runtime.cwd}/../../../data/asep/m3epi
@@ -27,6 +29,11 @@ visualize:
   batch_size: 32
   out_dir:    ${hydra:runtime.cwd}/../../../results/hgraphepi/m3epi/figures
 
+# to disable hydra to save configs, overrides, and log files to `outputs` dir
+hydra:  
+  output_subdir: null  
+  run:  
+    dir: .
 
 
 

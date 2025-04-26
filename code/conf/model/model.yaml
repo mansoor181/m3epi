@@ -4,18 +4,18 @@ dropout: 0.5               # dropout in each GNN layer
 
 encoder:
   antibody:
-    input_dim: 40          # Ab node feature dim (e.g. AbLang)
-    hidden_dims: [32, 32]  # dynamic list: controls number of hidden layers & widths
-    output_dim: 32         # final embedding dim per node
+    input_dim: 808  # 40          # Ab node feature dim (e.g. AbLang)
+    hidden_dims: [128, 64]  # dynamic list: controls number of hidden layers & widths
+    output_dim: 64         # final embedding dim per node
 
   antigen:
-    input_dim: 40          # Ag node feature dim (e.g. ESM1b)
-    hidden_dims: [32, 32]
-    output_dim: 32
+    input_dim: 520  # 40          # Ag node feature dim (e.g. ESM1b)
+    hidden_dims: [128, 64]
+    output_dim: 64
 
 decoder:
   type: "dot"             # choose one of: dot | mlp | attention
-  interaction_dim: 32     # embedding dim
+  interaction_dim: 64     # embedding dim
   threshold: 0.1          # epitope cutoff
   heads: 4                # only used by attention decoder
   mlp_hidden: 64          # only used by mlp decoder

@@ -4,16 +4,25 @@ import subprocess
 import pandas as pd
 from pathlib import Path
 
-# 10.1  — factors to sweep
-GNNs     = ["GCN", "GAT"] #, "GIN"]
-Decoders = ["dot"] # , "attention"]
+# # 10.1  — factors to sweep
+# GNNs     = ["GCN", "GAT"] #, "GIN"]
+# Decoders = ["dot"] # , "attention"]
+# Losses   = ["infonce"] #, "gwnce"]
+# Seeds    = [42, 43 ] #, 44, 45, 46]
+
+GNNs     = ["GCN", "GAT", "GIN"]
+Decoders = ["dot", "attention", "mlp"]
 Losses   = ["infonce", "gwnce"]
-Seeds    = [42, 43 ] #, 44, 45, 46]
+Seeds    = [42, 43, 44, 45, 46]
 
 """
 TODO: [mansoor]
 - load the best sweep config and run ablation.py
 """
+
+# grab all the user‐provided hydra overrides
+# e.g. ["hparams.train.batch_size=64", "model.name=GIN", …]
+USER_OVERRIDES = [arg for arg in sys.argv[1:] if "=" in arg]
 
 # sys.exit("Stopping the script.")
 results_dir = os.getcwd() + "/../../../results/hgraphepi/m3epi/ablation"
@@ -29,6 +38,8 @@ env["PYTHONPATH"] = str(CODE_DIR)
 PYTHON = sys.executable
 
 records = []
+# total ablation experiments = len(GNNs) * len(Decoders) * len(Losses) * len(Seeds)
+print("Total ablation experiments:", len(GNNs) * len(Decoders) * len(Losses) * len(Seeds))
 for model, decoder, loss_name, seed in itertools.product(GNNs, Decoders, Losses, Seeds):
     overrides = [
         "mode=test",                           # HOLD-OUT test
@@ -37,7 +48,9 @@ for model, decoder, loss_name, seed in itertools.product(GNNs, Decoders, Losses,
         f"seed={seed}",
         f"loss.contrastive.name={loss_name}"
     ]
-    cmd = [PYTHON, "main.py"] + overrides
+    # cmd = [PYTHON, "main.py"] + overrides
+    cmd = [PYTHON, "main.py"] + USER_OVERRIDES + overrides
+
     print("▶︎ Running:", " ".join(cmd))
     start = time.time()
     proc = subprocess.run(
@@ -92,6 +105,7 @@ if not df.empty:
         .agg({
             "mcc":          ["mean","std"],
             "auroc":        ["mean","std"],
+            "auprc":        ["mean","std"],
             "precision":    ["mean","std"],
             "recall":       ["mean","std"],
             "f1":           ["mean","std"],
@@ -104,7 +118,7 @@ if not df.empty:
     agg = agg.reset_index()
 
     # 3) for each metric, combine mean & std into one column
-    metrics = ["mcc","auroc","precision","recall","f1","duration_s"]
+    metrics = ["mcc","auroc","auprc","precision","recall","f1","duration_s"]
     for m in metrics:
         mean_c = f"{m}_mean"
         std_c  = f"{m}_std"
@@ -127,6 +141,16 @@ else:
 
 
 
+"""
+Example usage:
+python ablation.py \
+  hparams.train.batch_size=64 \
+  hparams.train.num_epochs=15 \
+  hparams.train.kfolds=5 \
+  hparams.train.learning_rate=1e-3 \
+  model.decoder.threshold=0.5 \
+  num_threads=1
+"""
 
 
 

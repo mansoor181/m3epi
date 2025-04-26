@@ -163,9 +163,10 @@ This document outlines the 4-step procedure for conducting ablation studies: dev
 3. **Testing (test)**: Evaluate the model on a hold-out test set.
 4. **Aggregation**: Aggregate results across different seeds and variants.
 
+
 This procedure ensures a systematic approach to model development, validation, and testing, providing reliable and reproducible results.
 ```bash
-# 1) hyper-parameter search (unchanged)
+# 1) hyper-parameter search in train mode with CV
 python sweep.py +mode=train …
 
 # 2) once best HP picked, run ablation

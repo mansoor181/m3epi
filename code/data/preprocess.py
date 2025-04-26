@@ -43,10 +43,11 @@ NOTE:
 """
 
 
+# add other directories to the path to import modules
 import sys, os
-sys.path.append( os.path.abspath(os.path.join(os.getcwd(), 'baselines/mipe')))
-sys.path.append( os.path.abspath(os.path.join(os.getcwd(), '../../codebase')))
-sys.path.append(os.path.abspath(os.path.join(os.getcwd())))
+sys.path.append( os.path.abspath(os.path.join(os.getcwd(), 'm3epi')))  # cd m3epi/code
+sys.path.append( os.path.abspath(os.path.join(os.getcwd(), '../../../m3epi')))
+sys.path.append( os.path.abspath(os.path.join(os.getcwd(), '../../walle')))
 
 
 import numpy as np
@@ -96,6 +97,10 @@ mipe_asep_transform_dir = os.path.join(asep_trans_baselines_dir, "mipe")
 mipe_cvdata_pkl_path = os.path.join(mipe_asep_transform_dir, "mipe_cvdata_cpu.pkl")
 mipe_testdata_pkl_path = os.path.join(mipe_asep_transform_dir, "testdata.pkl")
 mipe_test_results = pd.read_csv(os.path.join(results_dir, "test_results.csv"))
+
+# M3Epi data
+m3epi_asep_transform_dir = os.path.join(asep_data_dir, "m3epi")
+
 
 
 AA_MAP = {
@@ -211,14 +216,31 @@ light_ablang.freeze()
 
 fasta_sequences = SeqIO.parse(open(asep_ab_ag_sequences_fasta_path),'fasta')
 
+
+######## create and transform graphs pickle dataset #######
+import ablang
+
+asep_m3epi_transformed = []
+
+# dict(['complex_code', 'coord_AG', 'label_AG', 'coord_AB', 'label_AB', 
+# 'edge_AGAB', 'edge_AB', 'edge_AG', 'vertex_AB', 'vertex_AG', 'AbLang_AB', 'ESM1b_AG'])
+
+heavy_ablang = ablang.pretrained("heavy") # Use "light" if you are working with light chains
+heavy_ablang.freeze()
+
+light_ablang = ablang.pretrained("light")
+light_ablang.freeze()
+
+fasta_sequences = SeqIO.parse(open(asep_ab_ag_sequences_fasta_path),'fasta')
+
 i = 0
 for fasta in fasta_sequences:
-    asep_mipe_transformed_dict = {}
+    asep_m3epi_transformed_dict = {}
 
     name, sequence = fasta.id, str(fasta.seq)
 
     pdb_id = name.split("|")[0]
-    asep_mipe_transformed_dict["complex_code"] = pdb_id
+    asep_m3epi_transformed_dict["complex_code"] = pdb_id
 
     H_chain = sequence.split(":")[0]
     L_chain = sequence.split(":")[1]
@@ -240,21 +262,25 @@ for fasta in fasta_sequences:
         light_rescodings = torch.tensor(light_ablang(L_chain, mode='rescoding'))
 
         ab_rescodings = torch.cat((heavy_rescodings, light_rescodings), dim=1).squeeze()
-        asep_mipe_transformed_dict["AbLang_AB"] = ab_rescodings[seqres2cdr_mask].numpy()
-        asep_mipe_transformed_dict["ESM1b_AG"] = asep_graphs_processed[pdb_id]["x_g"].numpy()
+        # asep_m3epi_transformed_dict["AbLang_AB"] = ab_rescodings[seqres2cdr_mask].numpy()
+        # asep_m3epi_transformed_dict["ESM1b_AG"] = asep_graphs_processed[pdb_id]["x_g"].numpy()
 
-        asep_mipe_transformed_dict["edge_AG"] = asep_graphs_processed[pdb_id]["edge_index_g"].tolist()
-        asep_mipe_transformed_dict["edge_AB"] = asep_graphs_processed[pdb_id]["edge_index_b"].tolist()
+        ab_plm_embeddings = ab_rescodings[seqres2cdr_mask].numpy()
+        ag_plm_embeddings = asep_graphs_processed[pdb_id]["x_g"].numpy()
+
+        asep_m3epi_transformed_dict["edge_AG"] = asep_graphs_processed[pdb_id]["edge_index_g"].tolist()
+        asep_m3epi_transformed_dict["edge_AB"] = asep_graphs_processed[pdb_id]["edge_index_b"].tolist()
         """ 
         FIXME: 
         - swap `edge_index_bg` to `edge_index_gb` as is needed for `edge_AGAB`
+        - originally first row contains ab nodes while 2nd row contains ag nodes
         """
         edge_index_gb = torch.tensor([asep_graphs_processed[pdb_id]["edge_index_bg"][1].tolist(),
                                             asep_graphs_processed[pdb_id]["edge_index_bg"][0].tolist()])
-        asep_mipe_transformed_dict["edge_AGAB"] = edge_index_gb.tolist()
+        asep_m3epi_transformed_dict["edge_AGAB"] = edge_index_gb.tolist()
         
-        asep_mipe_transformed_dict["label_AG"] = asep_graphs_processed[pdb_id]["y_g"].tolist()
-        asep_mipe_transformed_dict["label_AB"] = asep_graphs_processed[pdb_id]["y_b"].tolist()
+        asep_m3epi_transformed_dict["label_AG"] = asep_graphs_processed[pdb_id]["y_g"].tolist()
+        asep_m3epi_transformed_dict["label_AB"] = asep_graphs_processed[pdb_id]["y_b"].tolist()
 
         ag_pdb_file_path = os.path.join(asep_ag_atmseq2surf_dir, f'{pdb_id}_surf.pdb')
         ag_pdb_df = PandasPdb().read_pdb(ag_pdb_file_path)
@@ -275,8 +301,14 @@ for fasta in fasta_sequences:
         filtered_ab_df = filtered_ab_df[filtered_ab_df.loc[:,"atom_name"]=="CA"]
         ab_pdb_coordinates = filtered_ab_df[["x_coord", "y_coord", "z_coord"]]
 
-        asep_mipe_transformed_dict["coord_AG"] = ag_pdb_coordinates.values.tolist()
-        asep_mipe_transformed_dict["coord_AB"] = ab_pdb_coordinates.to_numpy()
+        asep_m3epi_transformed_dict["coord_AG"] = ag_pdb_coordinates.values.tolist()
+        asep_m3epi_transformed_dict["coord_AB"] = ab_pdb_coordinates.to_numpy()
+
+        """
+        TODO: [mansoor]
+        - concatenate PLM embeddings to ag and ab vertex features
+        - ESM2 for Ag and AbLang for Ab
+        """
 
         ab_atmseq = "".join(filtered_ab_df["residue_name"].map(AA_MAP))
         ab_one_hot_df = create_one_hot_encoding(ab_atmseq)
@@ -286,13 +318,18 @@ for fasta in fasta_sequences:
         ag_local_profiles = get_local_aa_profile(ag_pdb_file_path)
         ab_local_profiles = get_local_aa_profile(ab_pdb_file_path)
 
-        ag_vertex_features = np.concatenate([ag_local_profiles, np.array(ag_one_hot_df)], axis=1)
-        ab_vertex_features = np.concatenate([ab_local_profiles, np.array(ab_one_hot_df)], axis=1)
+        # ag_vertex_features = np.concatenate([ag_local_profiles, np.array(ag_one_hot_df)], axis=1)
+        # ab_vertex_features = np.concatenate([ab_local_profiles, np.array(ab_one_hot_df)], axis=1)
 
-        asep_mipe_transformed_dict["vertex_AG"] = ag_vertex_features
-        asep_mipe_transformed_dict["vertex_AB"] = ab_vertex_features
+        # new vertex dimensions = 40 + 480 = 520
+        ag_vertex_features = np.concatenate([ag_local_profiles, np.array(ag_one_hot_df), ag_plm_embeddings], axis=1)
+        # new vertex dimensions = 40 + 768 = 808
+        ab_vertex_features = np.concatenate([ab_local_profiles, np.array(ab_one_hot_df), ab_plm_embeddings], axis=1)
 
-        asep_mipe_transformed.append(asep_mipe_transformed_dict)
+        asep_m3epi_transformed_dict["vertex_AG"] = ag_vertex_features
+        asep_m3epi_transformed_dict["vertex_AB"] = ab_vertex_features
+
+        asep_m3epi_transformed.append(asep_m3epi_transformed_dict)
 
         i = i +1
         if i % 100 == 0:
@@ -303,12 +340,19 @@ for fasta in fasta_sequences:
         print("Can't generate embeddings..")
         print(f"Sequence length of antibody {pdb_id} chains is more than 157..")
         
-torch.save(asep_mipe_transformed, os.path.join(mipe_asep_transform_dir, "asep_mipe_transformed.pkl" ) )
+
+    # print(pdb_id, H_chain, L_chain, Ag_chain)
+torch.save(asep_m3epi_transformed, os.path.join(m3epi_asep_transform_dir, "asep_m3epi_transformed.pkl" ) )
 
 """
 NOTE:
-we skip the following files from analysis:
+we skip these files from analysis:
 1. skip 5ies_0P.pdb because its seqres2cdr_seq and atmseq2cdr have different lengths
 2. skip 4hg4_8P.pdb because its heavy chain has length more than 157 
     which is why AbLang embeddings can't be generated
+"""
+
+"""
+Usage: cd m3epi/code
+python data/preprocess.py
 """

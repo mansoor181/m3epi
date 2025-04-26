@@ -1,5 +1,0 @@
-- mode=test
-- model.name=GCN
-- model.decoder.type=dot
-- seed=43
-- loss.contrastive.name=infonce

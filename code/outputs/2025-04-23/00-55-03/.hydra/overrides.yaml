@@ -1,4 +1,0 @@
-- model.name=GIN
-- model.decoder.type=attention
-- loss.contrastive.name=gwnce
-- seed=17

@@ -17,10 +17,16 @@ class EpitopeMetrics:
             'recall': BinaryRecall(),
             'f1': BinaryF1Score(),
             'accuracy': BinaryAccuracy(),
-            'average_precision': BinaryAveragePrecision(),
+            'auprc': BinaryAveragePrecision(), # equivalent to auprc
             'auroc': BinaryAUROC(),
             'mcc': BinaryMatthewsCorrCoef()
         }
+
+    def to(self, device):
+        """Move all internal torchmetrics to the given device."""
+        for m in self.metrics.values():
+            m.to(device)
+        return self
         
     def update(self, preds, targets):
         for metric in self.metrics.values():
