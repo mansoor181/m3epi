@@ -46,6 +46,7 @@ code/
 ├── m3epi.ipynb
 ├── main.py
 ├── sweep.py
+├── ablation.py
 ├── visualize_embeddings.py
 ├── utils.py
 ├─requirements.txt
@@ -63,7 +64,10 @@ results/
           summary/        
             GIN_mlp_ce+gwnce_ep05_lr1e-3_bs32_val_loss0.1234.csv # all runs
             GIN_mlp_ce+gwnce_ep05_lr1e-3_bs32_val_loss0.1234_cv_aggregated.csv # k-fold cv aggregated
-            GIN_mlp_ce+gwnce_results_summary.csv # aggregated for multiple seeds
+    summary/  # aggregated for multiple seeds and raw results
+      20250428T150547_a07d971_bs64_ne2_lr1e-3_threshold0.5_GCN-dot-infonce_agg.csv 
+      20250428T150547_a07d971_bs64_ne2_lr1e-3_threshold0.5_GCN-dot-infonce_raw.csv
+    logs/
   sweep/      # tune the hyperparameters of the best model 
     sweep_id/
       run1.yaml
@@ -422,7 +426,4 @@ Final blind test with the best checkpoint
 Embedding t‑SNE using that checkpoint
 
 Write results: tables + figures straight from CSV / PNG folders
-
-That workflow keeps experiments reproducible, your W&B dashboard tidy, and paper‑ready artefacts one command away. Good luck — ping me when you’re ready for the next punch‑list!
-
 

@@ -87,37 +87,6 @@ def load_data(data_path: str) -> Dict:
     data = torch.load(data_path)
     return data
 
-# def initialize_wandb(config: Dict[str, Any], 
-#                     project: Optional[str] = None,
-#                     name: Optional[str] = None):
-#     """
-#     Initialize Weights & Biases run.
-    
-#     Args:
-#         config: Configuration dictionary
-#         project: W&B project name. If None, uses config value
-#         name: W&B run name. If None, auto-generates
-        
-#     Returns:
-#         wandb.Run object
-#     """
-#     if project is None:
-#         project = config.wandb.project
-#     if name is None:
-#         name = f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        
-#     return wandb.init(
-#         project=project,
-#         name=name,
-#         config=config,
-#         reinit=True
-#     )
-
-try:
-    from wandb.sdk.lib.service_connection import WandbServiceNotOwnedError
-except ImportError:
-    class WandbServiceNotOwnedError(Exception):
-        pass
 
 def initialize_wandb(cfg):
     cfg_dict = OmegaConf.to_container(cfg, resolve=True)
@@ -146,26 +115,6 @@ def initialize_wandb(cfg):
     )
 
 
-# def initialize_wandb(cfg):
-#     # Convert the configuration to a dictionary
-#     cfg_dict = OmegaConf.to_container(cfg, resolve=True)
-#     wandb_cfg = cfg_dict.get('wandb', {})
-#     # print(wandb_cfg)
-
-#     # Initialize wandb with the dictionary
-#     wandb.init(
-#         project=wandb_cfg['project'],
-#         entity=wandb_cfg['entity'], 
-#         name=wandb_cfg.get('name', None),
-#         group=wandb_cfg.get('group', None),
-#         tags=wandb_cfg.get('tags', None),
-#         notes=wandb_cfg.get('notes', None),
-#         config=cfg_dict,  # Pass the entire configuration as a dictionary
-#         dir=wandb_cfg.get('save_dir', './wandb'),
-#         mode=wandb_cfg.get('mode', 'online'),
-#         resume=wandb_cfg.get('resume', 'allow'),
-#         anonymous=wandb_cfg.get('anonymous', 'allow')
-#     )
 
 
 def save_model(model: torch.nn.Module,
