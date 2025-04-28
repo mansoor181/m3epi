@@ -166,7 +166,9 @@ PSI-BLAST installation:
   - run sweeps in parallel on multiple gpus
   - run ablation experiments in parallel on multiple gpus
 
-### TODO: [04-27-25]
+### TODO: [04-28-25]
+
+1. self-contained results filenames for ablation experiments
 
 1. add pre-trained sequence-based binding site prediction models to generate m-dimensional sequence embeddings
   - protein-ligand models for antigen: ESMBind

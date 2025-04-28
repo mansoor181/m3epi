@@ -3,6 +3,10 @@ import os, sys, time, itertools, argparse
 import subprocess, torch
 import pandas as pd
 from pathlib import Path
+
+from datetime import datetime
+import subprocess as sp
+
 import warnings
 
 warnings.filterwarnings("ignore")
@@ -22,7 +26,12 @@ Seeds    = [42, 43 ] #, 44, 45, 46]
 
 # where to dump results
 RESULTS_DIR = os.getcwd() + "/../../../results/hgraphepi/m3epi/ablation"
-Path(RESULTS_DIR).mkdir(parents=True, exist_ok=True)
+summary_dir = os.path.join(RESULTS_DIR, "summary")
+logs_dir   = os.path.join(RESULTS_DIR, "logs")
+
+# Make sure results dir exists
+Path(summary_dir).mkdir(parents=True, exist_ok=True)
+Path(logs_dir).mkdir(parents=True, exist_ok=True)
 
 # ensure our code is importable
 CODE_DIR = Path(__file__).parent.resolve()
@@ -52,6 +61,51 @@ parser.add_argument(
 )
 args = parser.parse_args()
 
+# ──────── CREATE RESULTS FILENAMES ─────────────────────────────────────────
+
+# build overrides_dict
+overrides_dict = {}
+for o in args.overrides:
+    if "=" in o:
+        k, v = o.split("=", 1)
+        overrides_dict[k] = v
+
+# abbreviate only the keys 
+key_map = {
+    "hparams.train.batch_size":    "bs",
+    "hparams.train.learning_rate": "lr",
+    "hparams.train.num_epochs":    "ne",
+    "hparams.train.kfolds":        "kf",
+}
+
+parts = []
+for k, v in overrides_dict.items():
+    if k in ("wandb.notes", "wandb.tags"):
+        continue
+    short = key_map.get(k, k.split(".")[-1])
+    parts.append(f"{short}{v}")
+
+param_str = "_".join(parts) if parts else "default"
+
+# timestamp / git‐SHA / param / model strings for file names
+ts = datetime.utcnow().strftime("%Y%m%dT%H%M%S")
+try:
+    sha = sp.check_output(["git","rev-parse","--short","HEAD"]).decode().strip()
+except Exception:
+    sha = "nogit"
+
+
+# join all models/decoders/losses (or if you only have one each, it'll be that combo)
+model_str = (
+    f"{'+'.join(GNNs)}-"
+    f"{'+'.join(Decoders)}-"
+    f"{'+'.join(Losses)}"
+)
+
+# final paths
+raw_path = os.path.join(summary_dir, f"{ts}_{sha}_{param_str}_{model_str}_raw.csv")
+agg_path = os.path.join(summary_dir, f"{ts}_{sha}_{param_str}_{model_str}_agg.csv")
+
 # parse Hydra overrides
 USER_OVERRIDES = args.overrides
 
@@ -66,7 +120,7 @@ for model, decoder, loss_name, seed in itertools.product(GNNs, Decoders, Losses,
         f"loss.contrastive.name={loss_name}"
     ]
     cmd = [PYTHON, "main.py"] + USER_OVERRIDES + base_overrides
-    log_file = Path(RESULTS_DIR) / f"log_{model}_{decoder}_{loss_name}_{seed}.txt"
+    log_file = os.path.join(logs_dir, f"log_{model}_{decoder}_{loss_name}_{seed}.txt")
     all_tasks.append((cmd, log_file))
 
 print("Total ablation experiments:", len(all_tasks))
@@ -125,9 +179,18 @@ if args.multi_gpu and gpu_count > 0:
                 lines = log_file.read_text().splitlines()
                 metas = parse_metrics_from_lines(lines)
                 if metas:
-                    params = {kv.split("=")[0]: kv.split("=")[1] for kv in cmd if "=" in kv}
-                    rec = {"duration_s": None, **params, **metas}
+                    rec = {
+                        "model": model,
+                        "decoder": decoder,
+                        "loss": loss_name,
+                        "seed": seed,
+                        "duration_s": None,
+                        **metas
+                    }
                     records.append(rec)
+                    # flush raw results so far
+                    pd.DataFrame(records).to_csv(raw_path, index=False)
+
 else:
     print("Sequential execution of all tasks")
     for cmd, _ in all_tasks:
@@ -146,21 +209,27 @@ else:
             continue
         metas = parse_metrics_from_lines(proc.stdout.splitlines())
         if metas:
-            params = {kv.split("=")[0]: kv.split("=")[1] for kv in cmd if "=" in kv}
-            rec = {**params, "duration_s": duration, **metas}
+            rec = {
+                    "model": model,
+                    "decoder": decoder,
+                    "loss": loss_name,
+                    "seed": seed,
+                    "duration_s": duration,
+                    **metas
+                }
             records.append(rec)
+            # print(records)
+            
+            # flush raw results so far
+            pd.DataFrame(records).to_csv(raw_path, index=False)
 
 
-# Dump RAW
-raw_csv = os.path.join(RESULTS_DIR, "raw_ablation_results.csv")
-pd.DataFrame(records).to_csv(raw_csv, index=False)
-print("→ saved raw results to", raw_csv)
 
 # ─── Aggregate across seeds ────────────────────────────────────────
 df = pd.DataFrame(records)
 if not df.empty:
-    # group_cols = ["model","decoder","loss"]
-    group_cols = ["model.name","model.decoder.type","loss.contrastive.name"]
+    group_cols = ["model","decoder","loss"]
+    # group_cols = ["model.name","model.decoder.type","loss.contrastive.name"]
 
     # 1) compute mean & std
     agg = (
@@ -187,7 +256,7 @@ if not df.empty:
         mean_c = f"{m}_mean"
         std_c  = f"{m}_std"
         agg[m] = agg.apply(
-            lambda row: f"{row[mean_c]:.4f}±{row[std_c]:.5f}",
+            lambda row: f"{row[mean_c]:.3f}±{row[std_c]:.4f}",
             axis=1
         )
         # drop the now‐redundant columns
@@ -195,29 +264,12 @@ if not df.empty:
 
     # 4) reorder to keep group_cols first
     agg = agg[group_cols + metrics]
+    
+    agg.to_csv(agg_path, index=False)
+    print("→ saved aggregated results to", agg_path)
 
-    # 5) write out
-    agg_csv = os.path.join(RESULTS_DIR, "aggregated_ablation_results.csv")
-    agg.to_csv(agg_csv, index=False)
-    print("→ saved aggregated results to", agg_csv)
 else:
     print("⚠️ no successful runs to aggregate.")
-
-
-
-# # ──────── AGGREGATE & SAVE ─────────────────────────────────────────
-# df = pd.DataFrame(records)
-# if not df.empty:
-#     grouped = df.groupby(["model.name","model.decoder.type","loss.contrastive.name"]).agg(["mean","std"])
-#     grouped.columns = [f"{m}_{stat}" for stat,m in grouped.columns]
-#     agg = grouped.reset_index()
-#     for metric in ["mcc","auroc","auprc","precision","recall","f1","duration_s"]:
-#         agg[metric] = agg[f"{metric}_mean"].map("{:.3f}".format) + "±" + agg[f"{metric}_std"].map("{:.4f}".format)
-#         agg.drop([f"{metric}_mean", f"{metric}_std"], axis=1, inplace=True)
-#     agg.to_csv(Path(RESULTS_DIR)/"aggregated_ablation_results.csv", index=False)
-#     print("→ saved aggregated results to", RESULTS_DIR)
-# else:
-#     print("⚠️ no successful runs to aggregate.")
 
 
 
