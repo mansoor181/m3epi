@@ -113,27 +113,59 @@ def load_data(data_path: str) -> Dict:
 #         reinit=True
 #     )
 
+try:
+    from wandb.sdk.lib.service_connection import WandbServiceNotOwnedError
+except ImportError:
+    class WandbServiceNotOwnedError(Exception):
+        pass
 
 def initialize_wandb(cfg):
-    # Convert the configuration to a dictionary
     cfg_dict = OmegaConf.to_container(cfg, resolve=True)
     wandb_cfg = cfg_dict.get('wandb', {})
-    # print(wandb_cfg)
 
-    # Initialize wandb with the dictionary
+    # Pull tags out, ensure it's a list of str
+    raw_tags = wandb_cfg.get('tags', None)
+    tags = None
+    if raw_tags:
+        # force everything to str, skip non-iterables
+        tags = tuple(str(t) for t in raw_tags if isinstance(t, (str, int, float)))
+    
     wandb.init(
         project=wandb_cfg['project'],
-        entity=wandb_cfg['entity'], 
+        entity=wandb_cfg['entity'],
         name=wandb_cfg.get('name', None),
         group=wandb_cfg.get('group', None),
-        tags=wandb_cfg.get('tags', None),
+        # only pass tags if non-empty tuple
+        **({'tags': tags} if tags else {}),
         notes=wandb_cfg.get('notes', None),
-        config=cfg_dict,  # Pass the entire configuration as a dictionary
+        config=cfg_dict,
         dir=wandb_cfg.get('save_dir', './wandb'),
         mode=wandb_cfg.get('mode', 'online'),
         resume=wandb_cfg.get('resume', 'allow'),
-        anonymous=wandb_cfg.get('anonymous', 'allow')
+        anonymous=wandb_cfg.get('anonymous', 'allow'),
     )
+
+
+# def initialize_wandb(cfg):
+#     # Convert the configuration to a dictionary
+#     cfg_dict = OmegaConf.to_container(cfg, resolve=True)
+#     wandb_cfg = cfg_dict.get('wandb', {})
+#     # print(wandb_cfg)
+
+#     # Initialize wandb with the dictionary
+#     wandb.init(
+#         project=wandb_cfg['project'],
+#         entity=wandb_cfg['entity'], 
+#         name=wandb_cfg.get('name', None),
+#         group=wandb_cfg.get('group', None),
+#         tags=wandb_cfg.get('tags', None),
+#         notes=wandb_cfg.get('notes', None),
+#         config=cfg_dict,  # Pass the entire configuration as a dictionary
+#         dir=wandb_cfg.get('save_dir', './wandb'),
+#         mode=wandb_cfg.get('mode', 'online'),
+#         resume=wandb_cfg.get('resume', 'allow'),
+#         anonymous=wandb_cfg.get('anonymous', 'allow')
+#     )
 
 
 def save_model(model: torch.nn.Module,

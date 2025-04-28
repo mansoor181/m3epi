@@ -3,53 +3,16 @@
 
 # M3Epi: Multi-modal, multi-task, multi-network (GNN, LSTM, CL) Epitope Prediction
 
-## Requirements
+<!-- ## Requirements
 
-This project relies on specific Python packages to ensure its proper functioning. The required packages and their versions are listed in the `requirements.txt` file.
+This project relies on specific Python packages to ensure its proper functioning. The required packages and their versions are listed in the `requirements.txt` file. -->
 
-## Data
+<!-- ## Data
 
-Dataset Files (pickle format) can be downloaded from: https://drive.google.com/drive/folders/1bvGZQnOs6XOA17NsiaZ4eVjvn94SOM3u?usp=drive_link
+Dataset Files (pickle format) can be downloaded from: https://drive.google.com/drive/folders/1bvGZQnOs6XOA17NsiaZ4eVjvn94SOM3u?usp=drive_link -->
 
-- Antibody embeddings generated using [AbLang](https://github.com/oxpig/AbLang.git)
+<!-- - Antibody embeddings generated using [AbLang](https://github.com/oxpig/AbLang.git) -->
 
-## TODO: [mansoor]
-- refactor train_model.py from walle and main.py from mipe
-- perform train, val, test in this file with wandb logging
-- perform k-fold cross validation
-- define modes of working: train, dev, tunning, sweep
-
-Ablation studies:
-1. create and add different GNN models: GCN, GAT, GIN
-    - make changes in the following files:
-        - model.py
-        - config yaml files: hparams, model
-2. add contrastive learning InfoNCE loss, gradient-weighted NCE loss
-    - update files: loss config, main.py
-3. modes of experiments: dev, train, sweep (tuning)
-    - update main.py: 
-        - sliced data loading for dev
-        - wandb sweep and config files for tuning
-4. epitope prediction for antigen alone (antibody-agnostic)
-    - exp settings: ag_alone, complex
-    - tasks: epi_pred, bipartite_link
-5. data configurations: 
-    - PLM-based node embeddings: `plm`
-    - MIPE-like node embeddings such as one-hot, aa_profile, etc: `vec`
-    - files to update: preprocess.py
-    NOTE:
-    - how about use two different encoders?
-        - one for processing `plm` and one for `vec`
-        - then pass through inner product decoder and take average of the adjacency matrices
-6. pre-trained sequence-based binding site prediction models
-    - protein-ligand models for antigen: ESMBind
-    - paratope prediction models for antibody: ParaAntiProt, Paragraph
-
-Explore:
-- self-supervised GNNs: graph augmentations such as removing and predicting nodes, edges 
-- predict graph descriptors such as node degree, edges, etc
-- k-mean clustering in graphs for binding nodes vs non-binding nodes 
-- hypergraph substructure and molecular fingerprints
 
 ## Code
 
@@ -132,7 +95,106 @@ PSI-BLAST installation:
 - makeblastdb -in uniref.fasta -dbtype prot -out blastdb/uniref50_db
 - psiblast -query seq.fasta -db uniref50_db -num_iterations 3 -out_ascii_pssm query.pssm -out output.txt
 
-##############################################
+
+### --------------------------------------------------------------- 
+
+### TODO: [04-15-25]
+
+1. create and add different GNN models: GCN, GAT, GIN
+    - make changes in the following files:
+        - model.py
+        - config yaml files: hparams, model
+    - try other related strategies such as residual connections
+1. add new losses:
+    1. contrastive learning InfoNCE loss (https://github.com/WangZhiwei9/MIPE.git)
+    2. gradient-weighted NCE loss (https://github.com/RingBDStack/ReGCL.git)
+    - update files: loss config, main.py
+1. modes of experiments: dev, train, sweep (tuning)
+    - update main.py: 
+        - sliced data loading for dev
+        - wandb sweep and config files for tuning
+
+### TODO: [04-18-25]
+
+1. data configurations: 
+    - PLM-based node embeddings: `plm`
+    - MIPE-like node embeddings such as one-hot, aa_profile, etc: `vec`
+    - files to update: preprocess.py
+    - try different dataset split settings: random, antigen-to-epitope ratio
+    NOTE:
+    - how about use two different encoders?
+        - one for processing `plm` and one for `vec`
+        - then pass through inner product decoder and take average of the adjacency matrices
+1. generate t-SNE plots for visualizing the embedding projections:
+    - binding vs non-binding nodes
+    - ag-ab bipartite graph edges
+    - see the effect of different loss functions and models
+1. only save the best model checkpoint for each experiment with proper filename:
+    - create folders for gnn model names, e.g., GCN, GAT, GIN, ...
+    - update callbacks.py
+    - filename: gnn_loss_epoch_lr_mcc.pt
+
+### TODO: [04-20-25]
+
+1. save results csv file when performing sweep experiments or in train mode
+    - when doing k-fold cross validation, also create a summary csv file
+    where the results for that particular experiment are averaged (mean ± std)
+1. how to perform ablation studies and analyze the results? 
+    - what tables and figures? AUROC, AUPRC plots
+    - shell script for ablation studies?
+    - abltation studies:
+        1. model type: GCN, GAT, GIN, GraphSAGE, 
+            TODO: implement other GNNs such as LSPE 
+            (learning structural and positional encodings), GraphWalk, etc
+        2. loss: CE only, CE + infonce, CE + gwnce
+        3. decoder type: inner product, MLP, cross attention
+    - aggregate results for five random seeds
+1. save and report train time in results: update main code
+
+### TODO: [04-22-25]
+
+1. make contrastive losses (infonce or gwnce) a config choice
+    - see the impact of CE only, CE + infonce, CE + gwnce
+1. add test model code and perform train-test split
+1. create full asep graphs dataset and run ablation studies
+
+### TODO: [04-26-25]
+
+1. modify the decoder output interaction map from max probability thresholding to thresholding of row-wise sum of probabilities 
+
+1. run sweep experiments for best ablation run
+  - run sweeps in parallel on multiple gpus
+  - run ablation experiments in parallel on multiple gpus
+
+### TODO: [04-27-25]
+
+1. add pre-trained sequence-based binding site prediction models to generate m-dimensional sequence embeddings
+  - protein-ligand models for antigen: ESMBind
+  - paratope prediction models for antibody: ParaAntiProt, Paragraph
+  1. fuse these sequence embeddings with GNN embeddings
+    - files to modify: 
+      - preprocess.py=> add the embedding vectors to tensor pkl file
+          - after generating sequence embeddings, mask using seqres2cdr and seqres2surf
+      - model.py=> concat the sequence and graph embeddings using cross attention before decoder
+  1. append the sequence embeddings with graph node embedding and then pass through GNN
+    - files to modify are preprocess.py
+  1. fine-tune 
+
+1. epitope prediction for antigen alone (antibody-agnostic)
+    - exp settings: ag_alone, complex
+    - tasks: epi_node, bipartite_link
+    
+
+### Explore:
+- self-supervised GNNs: graph augmentations such as removing and predicting nodes, edges 
+- predict graph descriptors such as node degree, edges, etc
+- k-mean clustering in graphs for binding nodes vs non-binding nodes 
+- hypergraph substructure and molecular fingerprints
+- create edge graph for bipartite link prediction
+
+
+
+### --------------------------------------------------------------- 
 
 
 ## NOTE:

@@ -80,12 +80,14 @@ class GraphEncoder(nn.Module):
 class DotDecoder(nn.Module):
     def __init__(self, hidden_dim: int):
         super().__init__()
-        self.interaction = nn.Parameter(torch.Tensor(hidden_dim, hidden_dim))
+        self.interaction = nn.Parameter(torch.Tensor(hidden_dim, hidden_dim)) # W is kxk
         nn.init.xavier_uniform_(self.interaction)
 
     def forward(self, ag_embed, ab_embed):
-        logits = ag_embed @ self.interaction @ ab_embed.t()
-        return torch.sigmoid(logits)
+        # logits = ag_embed @ self.interaction @ ab_embed.t() # X_g @ W @ X_b^T
+        logits = ag_embed @ ab_embed.t() # X_g @ X_b^T
+        return torch.sigmoid(logits) # [Ng,Nb] matrix of probabilities where x_ij represents the 
+                # probability of an edge between ag node i and ab node j (between 0 and 1)
 
 # ─────────────────────────────────────────────────────────────
 # 2) MLP‑based pairwise decoder
@@ -171,8 +173,13 @@ class M3EPI(nn.Module):
         ag_emb = self.ag_encoder(ag_x, ag_e)
         ab_emb = self.ab_encoder(ab_x, ab_e)
         ip     = self.decoder(ag_emb, ab_emb)       # [N,M]
-        # print(ip)
-        epi_prob = ip.max(dim=1).values             # as before
+        # print(ip.shape, ag_emb.shape, ab_emb.shape)
+        """
+        TODO: [mansoor]
+        -  take the row-wise sum of probabilities rather than max probability
+        """
+        epi_prob = torch.sigmoid(ip.sum(dim=1))   # sum of row-wise probabilties
+        # epi_prob = ip.max(dim=1).values   # pick the max row-wise probabilty
 
         return {
             'ag_embed': ag_emb,

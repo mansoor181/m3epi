@@ -4,79 +4,6 @@ TODO: [mansoor]
 - perform train, val, test in this file with wandb logging
 - perform k-fold cross validation
 - define modes of working: train, dev, tunning, sweep
-
-TODO:
-Ablation studies:
-1. create and add different GNN models: GCN, GAT, GIN
-    - make changes in the following files:
-        - model.py
-        - config yaml files: hparams, model
-    - try other related strategies such as residual connections
-2. add new losses:
-    1. contrastive learning InfoNCE loss (https://github.com/WangZhiwei9/MIPE.git)
-    2. gradient-weighted NCE loss (https://github.com/RingBDStack/ReGCL.git)
-    - update files: loss config, main.py
-3. modes of experiments: dev, train, sweep (tuning)
-    - update main.py: 
-        - sliced data loading for dev
-        - wandb sweep and config files for tuning
-4. epitope prediction for antigen alone (antibody-agnostic)
-    - exp settings: ag_alone, complex
-    - tasks: epi_pred, bipartite_link
-5. data configurations: 
-    - PLM-based node embeddings: `plm`
-    - MIPE-like node embeddings such as one-hot, aa_profile, etc: `vec`
-    - files to update: preprocess.py
-    - try different dataset split settings: random, antigen-to-epitope ratio
-    NOTE:
-    - how about use two different encoders?
-        - one for processing `plm` and one for `vec`
-        - then pass through inner product decoder and take average of the adjacency matrices
-6. pre-trained sequence-based binding site prediction models
-    - protein-ligand models for antigen: ESMBind
-    - paratope prediction models for antibody: ParaAntiProt, Paragraph 
-
-7. generate t-SNE plots for visualizing the embedding projections:
-    - binding vs non-binding nodes
-    - ag-ab bipartite graph edges
-    - see the effect of different loss functions and models
-
-8. only save the best model checkpoint for each experiment with proper filename:
-    - create folders for gnn model names, e.g., GCN, GAT, GIN, ...
-    - update callbacks.py
-    - filename: gnn_loss_epoch_lr_mcc.pt
-
-9. save results csv file when performing sweep experiments or in train mode
-    - when doing k-fold cross validation, also create a summary csv file
-    where the results for that particular experiment are averaged (mean ± std)
-
-10. how to perform ablation studies and analyze the results? 
-    - what tables and figures? AUROC, AUPRC plots
-    - shell script for ablation studies?
-    - abltation studies:
-        1. model type: GCN, GAT, GIN, GraphSAGE, 
-            TODO: implement other GNNs such as LSPE 
-            (learning structural and positional encodings), GraphWalk, etc
-        2. loss: CE only, CE + infonce, CE + gwnce
-        3. decoder type: inner product, MLP, cross attention
-    - aggregate results for five random seeds
-
-11. add test model code and perform train-test split
-
-12. save and report train time in results: update main code
-
-13. make contrastive losses (infonce or gwnce) a config choice
-    - see the impact of CE only, CE + infonce, CE + gwnce
-
-14. create full asep graphs dataset and run ablation studies
-    
-
-Explore:
-- self-supervised GNNs: graph augmentations such as removing and predicting nodes, edges 
-- predict graph descriptors such as node degree, edges, etc
-- k-mean clustering in graphs for binding nodes vs non-binding nodes 
-- hypergraph substructure and molecular fingerprints
-- create edge graph for bipartite link prediction
 """
 
 import os, logging
@@ -93,6 +20,10 @@ import torch
 from torch_geometric.data import Data
 from torch.optim import Adam
 import wandb
+
+from wandb.errors.errors import CommError
+from wandb.sdk.lib.service_connection import WandbServiceNotOwnedError
+
 import numpy as np
 from sklearn.model_selection import KFold
 from torch_geometric.loader import DataLoader as PygDataLoader
@@ -204,7 +135,7 @@ def compute_contrastive_loss(out, batch, cfg, device):
             loss_i = (cfg.loss.contrastive.intra_weight * intra +
                       cfg.loss.contrastive.inter_weight * inter)
 
-        else:  # 'gwnce'
+        elif name == 'gwnce':
             # local antigen graph
             ei_g = batch.edge_index_g[:, (batch.edge_index_g[0] >= g0) &
                                            (batch.edge_index_g[0] <  g1) &
@@ -260,10 +191,13 @@ def train_epoch(model, loader, optimizer, device, metrics, cfg):
         edge_loss = compute_edge_loss(outputs, batch, device)
 
         # 3) Contrastive loss
-        cl_loss = compute_contrastive_loss(outputs, batch, cfg, device)
-
-        loss = node_loss + edge_loss + cl_loss
-
+        if cfg.loss.contrastive.name in ["gwnce", "infonce"]:
+            cl_loss = compute_contrastive_loss(outputs, batch, cfg, device)
+            loss = node_loss + edge_loss + cl_loss
+        else:
+            loss = node_loss + edge_loss
+            # print("bce only")
+        
         # print(loss, cl_loss, node_loss)
 
         optimizer.zero_grad()
@@ -297,9 +231,15 @@ def validate_epoch(model, loader, device, metrics, cfg):
                 pos_weight=cfg.loss.node_prediction.pos_weight
             )
             edge_loss = compute_edge_loss(outputs, batch, device)
-            cl_loss   = compute_contrastive_loss(outputs, batch, cfg, device)
+            
+            # 3) Contrastive loss
+            if cfg.loss.contrastive.name in ["gwnce", "infonce"]:
+                cl_loss = compute_contrastive_loss(outputs, batch, cfg, device)
+                loss = node_loss + edge_loss + cl_loss
+            else:
+                loss = node_loss + edge_loss
+                # print("bce only")
 
-            loss = node_loss + edge_loss + cl_loss
             total_loss += loss.item()
 
             """
@@ -321,10 +261,11 @@ def main(cfg: DictConfig):
     seed_everything(cfg.seed)
     device = get_device()
     print("Using device: ", device)
+    # print("sweep config", cfg)
 
     # 1) Load data asep_m3epi_transformed_test.pkl
-    # full_data = load_data(os.path.join(cfg.data_dir, "asep_m3epi_transformed.pkl"))
-    full_data = load_data(os.path.join(cfg.data_dir, "asep_m3epi_transformed_test.pkl"))
+    full_data = load_data(os.path.join(cfg.data_dir, "asep_m3epi_transformed.pkl"))
+    # full_data = load_data(os.path.join(cfg.data_dir, "asep_m3epi_transformed_test.pkl"))
 
 
     # 2) MODE‑SPECIFIC HANDLING
@@ -385,13 +326,15 @@ def main(cfg: DictConfig):
 
             # ─────────────────────────────────────────────────────────────
             # ✦ new: log metrics to W&B each epoch
+            # append val to the metrics: val_mcc, val_auprc, val_f1, val_precision, val_recall, val_auroc
+            # logs these metrics to wandb and maximize val_mcc
             if cfg.logging_method == "wandb":
                 wandb.log({
                     "fold": fold,
                     "epoch": epoch,
                     "train_loss": tr_loss,
                     "val_loss": vl_loss,
-                    **{f"val_{k}": v for k,v in vl_met.items()}
+                    **{f"val_{k}": v for k,v in vl_met.items()} 
                 })
             # ─────────────────────────────────────────────────────────────
 
@@ -406,7 +349,7 @@ def main(cfg: DictConfig):
                 k: (v.cpu().item() if isinstance(v, torch.Tensor) else v)
                 for k, v in vl_met.items()
             }
-        all_best.append(final_metrics)
+        all_best.append(final_metrics) # save best results from each fold exp
 
         # all_best.append(vl_met)
 
@@ -476,6 +419,14 @@ def main(cfg: DictConfig):
     # ─────────────────────────────────────────────────────────────────────────
     # ✦ new: close W&B run once everything is done
     if cfg.logging_method == "wandb":
+        """
+        FIXME: during multi_gpu runs, wandb.finish() throws an error on run completion.
+        """
+        # try:
+        #     wandb.finish()
+        # except WandbServiceNotOwnedError:
+        #     # If the service actually belonged to the agent process, ignore
+        #     pass
         wandb.finish()
     # ─────────────────────────────────────────────────────────────────────────
 
@@ -491,6 +442,8 @@ if __name__ == "__main__":
 Example usage:
 python main.py \
   mode=test \
+  wandb.notes="test run" \
+  wandb.tags=["test"] \
   model.name=GIN \
   model.decoder.type=attention \
   loss.contrastive.name=gwnce \

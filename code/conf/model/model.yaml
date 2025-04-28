@@ -15,8 +15,8 @@ encoder:
 
 decoder:
   type: "dot"             # choose one of: dot | mlp | attention
-  interaction_dim: 64     # embedding dim
-  threshold: 0.1          # epitope cutoff
+  interaction_dim: 64     # embedding dim used only by mlp decoder
+  threshold: 0.5          # epitope cutoff
   heads: 4                # only used by attention decoder
   mlp_hidden: 64          # only used by mlp decoder
 

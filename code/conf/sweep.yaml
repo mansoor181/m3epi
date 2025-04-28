@@ -1,9 +1,9 @@
-program: ${hydra:runtime.cwd}/../main.py           # the script to run
-# program: main.py           # the script to run
+# program: ${hydra:runtime.cwd}/main.py           # the script to run
+program: main.py           # the script to run
 method: bayes             # or grid, random, etc.
 
 metric:
-  name: auprc    # e.g. auprc metrics
+  name: val_mcc    # e.g. auprc metrics
   goal: maximize
 
 # Here, `parameters` maps directly to Hydra override paths:
@@ -11,38 +11,68 @@ parameters:
   # change batch‑size
   hparams.train.batch_size:
     values: [32, 64, 128]
+  hparams.train.kfolds:
+    values: [5]
+  hparams.train.num_epochs:
+    values: [200, 300, 600]
   # adjust learning rate
   hparams.train.learning_rate:
     distribution: log_uniform_values
     min: 1e-5
     max: 1e-2
+  # # check multiple GPUs flag to access in sweep.py
+  # hparams.train.multi_gpu:
+  #   values: [false]
   # try both losses
   loss.contrastive.name:
-    values: ["infonce","gwnce"]
+    values: ["bce", "infonce","gwnce"]
   # tweak the cut_rate used by gwnce
-  gwnce.cut_rate:
+  loss.gwnce.cut_rate:
     distribution: uniform
-    min: 0.0
-    max: 0.5
+    min: 0.5
+    max: 2
+  # tweak the cut_way used by gwnce
+  loss.gwnce.cut_way:
+    distribution: uniform
+    min: 1.5
+    max: 3
   # change model type
   model.name:
-    values: ["GCN","GAT","GIN"]
+    values: ["GAT"] # ["GCN","GAT","GIN"]
   model.decoder.type:
-    values: ["dot","mlp","attention"] 
+    values: ["dot","attention"]  # ["dot","mlp","attention"] 
+  model.decoder.heads:
+    values: [2, 4, 8]  # only used by attention decoder
+  model.decoder.threshold:
+    distribution: uniform
+    min: 0.1
+    max: 1
+  model.encoder.antibody.hidden_dims: 
+    values: [[128, 64], [128, 64, 32]]
+  model.dropout:
+    values: [0.1, 0.2, 0.3]
+  model.use_residual:
+    values: [true, false]
+  mode:
+    values: ["train"]  # "train" mode for sweeping
   # ...etc
   
 
-# you can also early‑terminate bad runs:
+# also early‑terminate bad runs:
 early_terminate:
   type: hyperband
   min_iter: 1
   max_iter: 20
 
 
-# use the default `mode=train` flag so main.py does no k‑fold & picks up only one run:
+# use the default `mode=${mode}` from mode.yaml
 
 command:
   - ${env}
-  - python
+  - python3
   - ${program}
   - num_threads=1
+  - ${args_no_hyphens}  # <-- this injects **all** the sampled params
+  - 'wandb.notes="sweep GAT"'
+  - 'wandb.tags=["GAT", "optimize-node+edge-level-mcc"]'
+

@@ -4,4 +4,7 @@ entity: alibilab-gsu
 # project: ${oc.env:WANDB_PROJECT}
 api_key: ${oc.env:WANDB_API_KEY}
 save_dir: ${hydra:runtime.cwd}/../../../results/hgraphepi/m3epi/wandb
-mode: online
+# mode: online
+notes: ${mode}  # auto-generated
+tags:
+ - ${mode}  # auto-generated

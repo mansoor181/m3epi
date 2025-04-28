@@ -3,7 +3,7 @@
 # -------------------------------------------------------------------
 defaults:
   - _self_
-  - mode: test      # choices: train, dev, test
+  - mode: dev      # choices: train, dev, test
   - hparams: hparams
   - model:   model
   - loss:    loss
