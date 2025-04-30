@@ -31,7 +31,8 @@ code/
 │   ├── wandb/wandb.yaml
 │   └── mode/
 │       ├── dev.yaml
-│       └── train.yaml
+│       ├── train.yaml
+│       └── test.yaml
 ├── data/
 │   ├── generate_pssm.py
 │   ├── preprocess.py

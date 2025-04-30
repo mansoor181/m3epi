@@ -49,6 +49,8 @@ parameters:
     max: 1
   model.encoder.antibody.hidden_dims: 
     values: [[128, 64], [128, 64, 32]]
+  model.encoder.antigen.hidden_dims: 
+    values: [[128, 64], [128, 64, 32]]
   model.dropout:
     values: [0.1, 0.2, 0.3]
   model.use_residual:

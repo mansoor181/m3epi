@@ -178,8 +178,8 @@ class M3EPI(nn.Module):
         TODO: [mansoor]
         -  take the row-wise sum of probabilities rather than max probability
         """
-        epi_prob = torch.sigmoid(ip.sum(dim=1))   # sum of row-wise probabilties
-        # epi_prob = ip.max(dim=1).values   # pick the max row-wise probabilty
+        # epi_prob = torch.sigmoid(ip.sum(dim=1))   # sum of row-wise probabilties
+        epi_prob = ip.max(dim=1).values   # pick the max row-wise probabilty
 
         return {
             'ag_embed': ag_emb,
@@ -187,6 +187,13 @@ class M3EPI(nn.Module):
             'interaction_probs': ip,
             'epitope_prob': epi_prob
         }
+
+
+
+
+
+
+
 
 
 # class BipartiteDecoder(nn.Module):

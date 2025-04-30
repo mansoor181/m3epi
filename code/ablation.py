@@ -19,7 +19,7 @@ Seeds    = [42, 43, 44, 45, 46]
 
 
 # test ablations
-GNNs     = ["GCN"] # "GAT"] #, "GIN"]
+GNNs     = ["GIN"] # "GAT"] #, "GIN"]
 Decoders = ["dot"] # , "attention"]
 Losses   = ["infonce"] #, "gwnce"]
 Seeds    = [42, 43 ] #, 44, 45, 46]
@@ -287,9 +287,29 @@ python ablation.py --gpu_id 0 \
   num_threads=1
 """
 
+"""
+python ablation.py --gpu_id 0 \
+  hparams.train.batch_size=64 \
+  wandb.notes="ablation" \
+  wandb.tags=["ablation"] \
+  hparams.train.num_epochs=2 \
+  hparams.train.learning_rate=1e-3 \
+  model.decoder.threshold=0.5 \
+  num_threads=1
 
+FIXME: can't add multiple wandb tags
+"""
 
+"""
+python ablation.py --gpu_id 0 \
+    wandb.notes="ablation"   \
+    wandb.tags=["ablation"]   \
+    /home/mansoor/epitope_prediction/results/hgraphepi/m3epi/wandb/sweep-ir6r1ivi/config-n864pdx2.yaml
+"""
 
+"""
+python ablation.py --gpu_id 0   hparams.train.batch_size=128   wandb.notes="GIN ablation"   wandb.tags=["ablation", "GIN"]   hparams.train.num_epochs=350   hparams.train.learning_rate=5.467765138902218e-05   model.decoder.threshold=0.511343179376244 loss.gwnce.cut_rate=1.0798225460589037 loss.gwnce.cut_way=2.486187013261815 model.dropout=0.1
+"""
 
 
 # #!/usr/bin/env python3
